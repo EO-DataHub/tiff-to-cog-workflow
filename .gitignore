@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# CWL intermediate and output files
+*.cwlout
+*.cwltmp
+*.cwl.log
+*.tmp
+*.log
+*.bak
+*.out
+*.err
+*.lock
+*.swp
+*.swo
+*.tif
+output_cog.tif
+
+# Docker
+*.img
+*.tar
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Environment files
+.env
+.venv/
+venv/
+old/
