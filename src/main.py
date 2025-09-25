@@ -7,10 +7,16 @@ import pystac.utils
 import sys
 import logging
 import subprocess
+import boto3
 
 logging.basicConfig(
     level=logging.DEBUG, format="[%(levelname)s] %(message)s", stream=sys.stderr
 )
+
+
+def download_file_from_s3(bucket_name, key, output_path):
+    s3 = boto3.client("s3")
+    s3.download_file(bucket_name, key, output_path)
 
 
 def run_gdal_translate(tiff_url, output_path):
@@ -84,15 +90,43 @@ def parse_args():
     return parser.parse_args()
 
 
+def parse_eodatahub_url(url):
+    """Parse eodatahub-workspaces.org.uk URL to extract S3 bucket and key"""
+    url_parts = url.split("/")
+    files_idx = url_parts.index("files")
+    bucket_name = url_parts[files_idx + 1]
+    workspace_name = url_parts[2].split(".")[0]
+    key = f"{workspace_name}/" + "/".join(url_parts[files_idx + 2 :])
+    file_name = key.split("/")[-1]
+    local_tiff_path = f"/tmp/{file_name}"
+
+    return bucket_name, key, local_tiff_path
+
+
 def main():
     try:
         args = parse_args()
 
         if args.tiff_url:
-            # Derive output path from URL
-            url_name = Path(args.tiff_url.split("?")[0]).name
+            # Handle different URL types
+            if args.tiff_url.startswith("s3://"):
+                # Direct S3 URL
+                bucket_name, key = args.tiff_url.split("//")[1].split("/", 1)
+                file_name = key.split("/")[-1]
+                tiff_url = f"/tmp/{file_name}"
+                download_file_from_s3(bucket_name, key, tiff_url)
+            elif "eodatahub-workspaces.org.uk" in args.tiff_url:
+                # EODH workspace URL - parse and download from S3
+                bucket_name, key, tiff_url = parse_eodatahub_url(args.tiff_url)
+                download_file_from_s3(bucket_name, key, tiff_url)
+            else:
+                # Regular URL - use directly
+                tiff_url = args.tiff_url
+
+            # Get output path and convert to COG
+            url_name = Path(tiff_url.split("?")[0]).name
             output_cog = get_output_cog_path(url_name)
-            run_gdal_translate(args.tiff_url, output_cog)
+            run_gdal_translate(tiff_url, output_cog)
         else:
             logging.error("You must provide a --tiff_url")
             sys.exit(1)

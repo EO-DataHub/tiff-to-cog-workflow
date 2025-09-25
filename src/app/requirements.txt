@@ -1,1 +1,2 @@
 pystac
+boto3
