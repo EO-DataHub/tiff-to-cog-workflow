@@ -108,22 +108,21 @@ def main():
         args = parse_args()
 
         if args.tiff_url:
-            # Handle different URL types
-            if args.tiff_url.startswith("s3://"):
-                # Direct S3 URL
-                bucket_name, key = args.tiff_url.split("//")[1].split("/", 1)
-                file_name = key.split("/")[-1]
-                tiff_url = f"/tmp/{file_name}"
-                download_file_from_s3(bucket_name, key, tiff_url)
-            elif "eodatahub-workspaces.org.uk" in args.tiff_url:
+            if "eodatahub-workspaces.org.uk" in args.tiff_url:
                 # EODH workspace URL - parse and download from S3
+                logging.info("EODH workspace URL - parsing and downloading from S3")
                 bucket_name, key, tiff_url = parse_eodatahub_url(args.tiff_url)
+                logging.info(f"Bucket: {bucket_name}")
+                logging.info(f"Key: {key}")
+                logging.info(f"Tiff URL: {tiff_url}")
                 download_file_from_s3(bucket_name, key, tiff_url)
             else:
                 # Regular URL - use directly
+                logging.info("Regular URL - using directly")
                 tiff_url = args.tiff_url
 
             # Get output path and convert to COG
+            logging.info(f"Tiff URL: {tiff_url}")
             url_name = Path(tiff_url.split("?")[0]).name
             output_cog = get_output_cog_path(url_name)
             run_gdal_translate(tiff_url, output_cog)
