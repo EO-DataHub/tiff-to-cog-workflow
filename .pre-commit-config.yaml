@@ -1,0 +1,16 @@
+repos:
+  - repo: local
+    hooks:
+      - id: cwl-validate
+        name: Validate CWL files
+        entry: cwltool --validate
+        language: system
+        files: \.cwl$
+        pass_filenames: true
+      - id: test-workflow
+        name: Test CWL workflow
+        entry: python test_workflow.py
+        language: system
+        files: ^(token-access\.cwl|test_workflow\.py|access\.py|s3_access\.py|stac\.py|run\.py)$
+        pass_filenames: false
+        always_run: false

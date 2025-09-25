@@ -1,4 +1,9 @@
 cwlVersion: v1.2
+$namespaces:
+  s: https://schema.org/
+s:softwareVersion: 0.0.1
+schemas:
+  - http://schema.org/version/9.0/schemaorg-current-http.rdf
 $graph:
   - class: Workflow
     id: tiff-to-cog
@@ -28,7 +33,7 @@ $graph:
       Convert a remote TIFF file to a Cloud Optimized GeoTIFF (COG) and output a STAC catalog using a custom Python script in a Docker image.
     requirements:
       DockerRequirement:
-        dockerPull: public.ecr.aws/i2j9m5r4/eodh/tif2cog:latest
+        dockerPull: tif2cog:latest
       NetworkAccess:
         networkAccess: true
     baseCommand: [python, /usr/bin/main.py]
