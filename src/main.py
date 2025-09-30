@@ -19,10 +19,18 @@ def download_file_from_s3(bucket_name, key, output_path):
     s3.download_file(bucket_name, key, output_path)
 
 
-def run_gdal_translate(tiff_url, output_path):
+def run_gdal_translate(tiff_path, output_path):
+    # Check if the path is a local file or a remote URL
+    if tiff_path.startswith(("http://", "https://")):
+        # Remote URL - use /vsicurl/ prefix
+        input_path = f"/vsicurl/{tiff_path}"
+    else:
+        # Local file path - use directly
+        input_path = tiff_path
+
     cmd = [
         "gdal_translate",
-        f"/vsicurl/{tiff_url}",
+        input_path,
         output_path,
         "-of",
         "COG",
@@ -122,7 +130,7 @@ def main():
                 tiff_url = args.tiff_url
 
             # Get output path and convert to COG
-            logging.info(f"Tiff URL: {tiff_url}")
+            logging.info(f"Tiff path: {tiff_url}")
             url_name = Path(tiff_url.split("?")[0]).name
             output_cog = get_output_cog_path(url_name)
             run_gdal_translate(tiff_url, output_cog)

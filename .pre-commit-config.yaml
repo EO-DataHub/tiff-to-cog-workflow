@@ -11,6 +11,6 @@ repos:
         name: Test CWL workflow
         entry: python test_workflow.py
         language: system
-        files: ^(token-access\.cwl|test_workflow\.py|access\.py|s3_access\.py|stac\.py|run\.py)$
+        files: ^(token-access\.cwl|.*\.py)$
         pass_filenames: false
         always_run: false
