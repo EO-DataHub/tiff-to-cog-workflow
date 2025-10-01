@@ -1,7 +1,7 @@
 cwlVersion: v1.2
 $namespaces:
   s: https://schema.org/
-s:softwareVersion: 0.1.0
+s:softwareVersion: 0.1.1
 schemas:
   - http://schema.org/version/9.0/schemaorg-current-http.rdf
 $graph:
@@ -31,6 +31,7 @@ $graph:
         run: "#tiff-to-cog-tool"
         in:
           tiff_url: tiff_url
+          gdal_options: gdal_options
         out:
           - output_cog
   - class: CommandLineTool

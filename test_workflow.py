@@ -36,13 +36,17 @@ WORKFLOW_CONFIG = {
     "workflow_id": "tiff-to-cog",  # ID of the workflow in the CWL file
     "input_param": "tiff_url",  # Input parameter name
     "test_input": "https://download.osgeo.org/geotiff/samples/spot/chicago/UTM2GTIF.TIF",  # Test input value
+    "gdal_options_param": "gdal_options",  # GDAL options parameter name
+    "test_gdal_options": '{"COMPRESS":"ZSTD","BLOCKSIZE":"1024","OVERVIEW_RESAMPLING":"BILINEAR"}',  # Test GDAL options
     "output_dir_name": "output_cog",  # Expected output directory name
 }
 
 
-def run_cwl_workflow(test_input):
+def run_cwl_workflow(test_input, gdal_options=None):
     """Run the CWL workflow using Python factory and return success status."""
     logger.info(f"🔄 Running CWL workflow with input '{test_input}'")
+    if gdal_options:
+        logger.info(f"🔄 Using GDAL options: {gdal_options}")
 
     try:
         # Setup CWL runtime
@@ -66,7 +70,13 @@ def run_cwl_workflow(test_input):
 
             # Make and run the workflow
             workflow = fac.make(cwl_uri)
-            workflow(**{WORKFLOW_CONFIG["input_param"]: test_input})
+
+            # Prepare workflow inputs
+            workflow_inputs = {WORKFLOW_CONFIG["input_param"]: test_input}
+            if gdal_options:
+                workflow_inputs[WORKFLOW_CONFIG["gdal_options_param"]] = gdal_options
+
+            workflow(**workflow_inputs)
 
             # Copy generated files to persistent location
             persistent_dir = os.path.join(output_dir, "latest_run")
@@ -161,6 +171,17 @@ def parse_args():
         help=f"Test input value for {WORKFLOW_CONFIG['input_param']} parameter (default: {WORKFLOW_CONFIG['test_input']})",
     )
     parser.add_argument(
+        "--gdal_options",
+        type=str,
+        default=WORKFLOW_CONFIG["test_gdal_options"],
+        help=f"GDAL options as JSON string for {WORKFLOW_CONFIG['gdal_options_param']} parameter (default: {WORKFLOW_CONFIG['test_gdal_options']})",
+    )
+    parser.add_argument(
+        "--no_gdal_options",
+        action="store_true",
+        help="Run without GDAL options (use defaults)",
+    )
+    parser.add_argument(
         "--keep-output",
         action="store_true",
         help="Keep output directory after test completion (for debugging)",
@@ -203,8 +224,9 @@ def main():
 
     # Run the CWL workflow
     test_input = args.input
+    gdal_options = None if args.no_gdal_options else args.gdal_options
 
-    success, output_dir, error = run_cwl_workflow(test_input)
+    success, output_dir, error = run_cwl_workflow(test_input, gdal_options)
 
     if not success:
         logger.error("❌ CWL workflow failed")

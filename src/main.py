@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--tiff_url", type=str, help="URL to remote TIFF file")
     parser.add_argument(
-        "--gdal-options",
+        "--gdal_options",
         type=str,
         default=None,
         help='Optional GDAL creation options as JSON string, e.g., \'{"COMPRESS":"ZSTD","BLOCKSIZE":"1024"}\'. '
