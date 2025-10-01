@@ -1,7 +1,7 @@
 cwlVersion: v1.2
 $namespaces:
   s: https://schema.org/
-s:softwareVersion: 0.1.0
+s:softwareVersion: 0.1.2
 schemas:
   - http://schema.org/version/9.0/schemaorg-current-http.rdf
 $graph:
@@ -14,9 +14,6 @@ $graph:
       tiff_url:
         type: string
         doc: URL to the remote TIFF file
-      gdal_options:
-        type: string?
-        doc: GDAL options to pass into conversion
     requirements:
       ResourceRequirement:
         coresMax: 2
@@ -51,12 +48,6 @@ $graph:
           position: 1
           prefix: --tiff_url
         doc: URL to the remote TIFF file
-      gdal_options:
-        type: string?
-        doc: GDAL options to pass into conversion
-        inputBinding:
-          position: 2
-          prefix: --gdal_options
     outputs:
       output_cog:
         type: Directory
