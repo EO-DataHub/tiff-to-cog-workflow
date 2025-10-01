@@ -1,105 +1,67 @@
-import pystac
-import datetime
-import os
+"""TIFF to COG conversion script with STAC catalog generation."""
+
 import argparse
 from pathlib import Path
-import pystac.utils
 import sys
 import logging
-import subprocess
 import boto3
+from typing import Tuple
+from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
+from stac_utils import create_stac_catalog
+from gdal_utils import run_gdal_translate, parse_gdal_options, get_output_cog_path
+from validation import ValidationError, validate_input_url, validate_downloaded_file
 
 logging.basicConfig(
     level=logging.DEBUG, format="[%(levelname)s] %(message)s", stream=sys.stderr
 )
 
 
-def download_file_from_s3(bucket_name, key, output_path):
+def download_file_from_s3(bucket_name: str, key: str, output_path: str) -> None:
+    """Download a file from S3 bucket to local filesystem.
+
+    Args:
+        bucket_name: Name of the S3 bucket
+        key: S3 object key (path within bucket)
+        output_path: Local filesystem path where file will be saved
+    """
     s3 = boto3.client("s3")
     s3.download_file(bucket_name, key, output_path)
 
 
-def run_gdal_translate(tiff_path, output_path):
-    # Check if the path is a local file or a remote URL
-    if tiff_path.startswith(("http://", "https://")):
-        # Remote URL - use /vsicurl/ prefix
-        input_path = f"/vsicurl/{tiff_path}"
-    else:
-        # Local file path - use directly
-        input_path = tiff_path
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments.
 
-    cmd = [
-        "gdal_translate",
-        input_path,
-        output_path,
-        "-of",
-        "COG",
-        "-co",
-        "COMPRESS=LZW",
-    ]
-    try:
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as e:
-        logging.error(f"GDAL conversion failed: {e}")
-        sys.exit(1)
-
-
-def create_stac_catalog(cog_path):
-    output_dir = Path(cog_path).parent  # This will be 'output_cog'
-    name = Path(cog_path).stem
-    cat = pystac.Catalog(id="catalog", description="tiff-to-cog-output")
-    # Set the self_href for the catalog
-    cat_path = output_dir / "catalog.json"
-    cat.set_self_href(str(cat_path))
-    item = pystac.Item(
-        id=name,
-        geometry={
-            "type": "Polygon",
-            "coordinates": [
-                [[-180, -90], [-180, 90], [180, 90], [180, -90], [-180, -90]]
-            ],
-        },
-        bbox=None,
-        datetime=datetime.datetime.now(),
-        properties={
-            "created": pystac.utils.datetime_to_str(datetime.datetime.now()),
-            "updated": pystac.utils.datetime_to_str(datetime.datetime.now()),
-        },
-        extra_fields={"bbox": [-180, -90, 180, 90]},
+    Returns:
+        Namespace containing the parsed arguments:
+            - tiff_url: URL to remote TIFF file
+            - gdal_options: Optional JSON string with GDAL creation options
+    """
+    parser = argparse.ArgumentParser(
+        description="Convert TIFF files to Cloud Optimized GeoTIFF (COG) format"
     )
-    item.add_asset(
-        name,
-        pystac.Asset(
-            href=str(Path(cog_path).name),
-            media_type=pystac.MediaType.GEOTIFF,
-            roles=["data"],
-            extra_fields={"file:size": os.path.getsize(cog_path)},
-        ),
-    )
-    # Set the self_href for the item
-    item_path = output_dir / f"{name}.json"
-    item.set_self_href(str(item_path))
-    cat.add_item(item)
-    # Save catalog and item flat in output_cog
-    cat.save(catalog_type=pystac.CatalogType.SELF_CONTAINED, dest_href=str(output_dir))
-
-
-def get_output_cog_path(input_path):
-    input_path = Path(input_path)
-    output_dir = Path("output_cog")
-    output_dir.mkdir(exist_ok=True)
-    new_name = input_path.stem + "_cog" + input_path.suffix
-    return str(output_dir / new_name)
-
-
-def parse_args():
-    parser = argparse.ArgumentParser()
     parser.add_argument("--tiff_url", type=str, help="URL to remote TIFF file")
+    parser.add_argument(
+        "--gdal-options",
+        type=str,
+        default=None,
+        help='Optional GDAL creation options as JSON string, e.g., \'{"COMPRESS":"ZSTD","BLOCKSIZE":"1024"}\'. '
+        "If not provided, uses defaults: COMPRESS=LZW, BLOCKSIZE=512, OVERVIEW_RESAMPLING=NEAREST",
+    )
     return parser.parse_args()
 
 
-def parse_eodatahub_url(url):
-    """Parse eodatahub-workspaces.org.uk URL to extract S3 bucket and key"""
+def parse_eodatahub_url(url: str) -> Tuple[str, str, str]:
+    """Parse eodatahub-workspaces.org.uk URL to extract S3 bucket and key.
+
+    Args:
+        url: URL from eodatahub-workspaces.org.uk pointing to a TIFF file
+
+    Returns:
+        Tuple containing:
+            - bucket_name: Name of the S3 bucket
+            - key: S3 object key (path within bucket)
+            - local_tiff_path: Local path where the file will be downloaded
+    """
     url_parts = url.split("/")
     files_idx = url_parts.index("files")
     bucket_name = url_parts[files_idx + 1]
@@ -111,36 +73,121 @@ def parse_eodatahub_url(url):
     return bucket_name, key, local_tiff_path
 
 
-def main():
+def main() -> None:
+    """Main entry point for the TIFF to COG conversion script.
+
+    Handles the workflow of:
+    1. Parsing command line arguments
+    2. Validating input URL
+    3. Parsing optional GDAL options (uses defaults if not provided)
+    4. Downloading TIFF file if from EODH workspace
+    5. Validating downloaded file
+    6. Converting TIFF to COG format with specified options
+    7. Creating STAC catalog with metadata
+
+    Raises:
+        SystemExit: If required arguments are missing or any step fails
+    """
     try:
         args = parse_args()
 
-        if args.tiff_url:
-            if "eodatahub-workspaces.org.uk" in args.tiff_url:
-                # EODH workspace URL - parse and download from S3
-                logging.info("EODH workspace URL - parsing and downloading from S3")
-                bucket_name, key, tiff_url = parse_eodatahub_url(args.tiff_url)
-                logging.info(f"Bucket: {bucket_name}")
-                logging.info(f"Key: {key}")
-                logging.info(f"Tiff URL: {tiff_url}")
-                download_file_from_s3(bucket_name, key, tiff_url)
-            else:
-                # Regular URL - use directly
-                logging.info("Regular URL - using directly")
-                tiff_url = args.tiff_url
-
-            # Get output path and convert to COG
-            logging.info(f"Tiff path: {tiff_url}")
-            url_name = Path(tiff_url.split("?")[0]).name
-            output_cog = get_output_cog_path(url_name)
-            run_gdal_translate(tiff_url, output_cog)
-        else:
+        if not args.tiff_url:
             logging.error("You must provide a --tiff_url")
             sys.exit(1)
 
+        # Validate input URL before processing
+        try:
+            validate_input_url(args.tiff_url)
+        except ValidationError as e:
+            logging.error(f"Input validation failed: {e}")
+            sys.exit(1)
+
+        # Parse GDAL options (will use defaults if not provided)
+        try:
+            gdal_options = parse_gdal_options(args.gdal_options)
+        except ValueError as e:
+            logging.error(f"Invalid GDAL options: {e}")
+            sys.exit(1)
+
+        if "eodatahub-workspaces.org.uk" in args.tiff_url:
+            # EODH workspace URL - parse and download from S3
+            logging.info("EODH workspace URL - parsing and downloading from S3")
+            bucket_name, key, tiff_url = parse_eodatahub_url(args.tiff_url)
+            logging.info(f"Downloading from S3: {bucket_name}, {key}, {tiff_url}")
+            download_file_from_s3(bucket_name, key, tiff_url)
+
+            # Validate downloaded file
+            try:
+                validate_downloaded_file(tiff_url)
+            except ValidationError as e:
+                logging.error(f"Downloaded file validation failed: {e}")
+                sys.exit(1)
+        else:
+            # Regular URL - use directly
+            logging.info("Regular URL - using directly")
+            tiff_url = args.tiff_url
+
+        # Get output path and convert to COG with options
+        logging.info(f"Tiff path: {tiff_url}")
+        url_name = Path(tiff_url.split("?")[0]).name
+        output_cog = get_output_cog_path(url_name)
+        run_gdal_translate(tiff_url, output_cog, gdal_options)
+
         create_stac_catalog(output_cog)
+
+    # Validation errors
+    except ValidationError as e:
+        logging.error(f"Validation error: {e}")
+        sys.exit(1)
+
+    # GDAL option parsing errors
+    except ValueError as e:
+        logging.error(f"Invalid value or format: {e}")
+        sys.exit(1)
+
+    # AWS/S3 specific errors
+    except NoCredentialsError:
+        logging.error("AWS credentials not found. Please configure AWS credentials.")
+        sys.exit(1)
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code", "Unknown")
+        if error_code == "NoSuchBucket":
+            logging.error(f"S3 bucket does not exist: {e}")
+        elif error_code == "NoSuchKey":
+            logging.error(f"S3 object not found: {e}")
+        elif error_code == "403":
+            logging.error(f"Permission denied to access S3 object: {e}")
+        else:
+            logging.error(f"S3 error ({error_code}): {e}")
+        sys.exit(1)
+    except BotoCoreError as e:
+        logging.error(f"AWS SDK error: {e}")
+        sys.exit(1)
+
+    # File system errors
+    except FileNotFoundError as e:
+        logging.error(f"File not found: {e}")
+        sys.exit(1)
+    except PermissionError as e:
+        logging.error(f"Permission denied: {e}")
+        sys.exit(1)
+    except OSError as e:
+        logging.error(f"OS error (disk full, network issue, etc.): {e}")
+        sys.exit(1)
+
+    # GDAL/Runtime errors (from gdal_utils)
+    except RuntimeError as e:
+        logging.error(f"Runtime error: {e}")
+        sys.exit(1)
+
+    # Keyboard interrupt
+    except KeyboardInterrupt:
+        logging.warning("Operation cancelled by user")
+        sys.exit(130)  # Standard exit code for Ctrl+C
+
+    # Catch-all for truly unexpected errors
     except Exception as e:
-        logging.error(f"Exception occurred: {e}")
+        logging.error(f"Unexpected error: {type(e).__name__}: {e}")
         import traceback
 
         traceback.print_exc(file=sys.stderr)

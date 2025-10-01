@@ -1,22 +1,24 @@
-FROM ghcr.io/osgeo/gdal:alpine-normal-latest AS builder
+FROM ghcr.io/osgeo/gdal:ubuntu-small-latest
+
 LABEL authors="Sparkgeo UK"
 
-RUN apk add --no-cache python3 py3-pip
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-gdal \
+    && rm -rf /var/lib/apt/lists/*
 
+# Copy requirements
 ADD app/requirements.txt /tmp/requirements.txt
 
-
-RUN python3 -m venv /venv && \
+RUN python3 -m venv --system-site-packages /venv && \
     . /venv/bin/activate && \
     pip install --no-cache-dir -r /tmp/requirements.txt
 
-
+# Copy application code
 COPY . /usr/bin/
 RUN chmod +x /usr/bin/*.py
-
-FROM ghcr.io/osgeo/gdal:alpine-normal-latest
-COPY --from=builder /venv /venv
-COPY --from=builder /usr/bin /usr/bin
 
 ENV PATH="/venv/bin:$PATH"
 
