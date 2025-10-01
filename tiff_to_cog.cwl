@@ -1,7 +1,7 @@
 cwlVersion: v1.2
 $namespaces:
   s: https://schema.org/
-s:softwareVersion: 0.0.3
+s:softwareVersion: 0.0.4
 schemas:
   - http://schema.org/version/9.0/schemaorg-current-http.rdf
 $graph:
@@ -14,6 +14,10 @@ $graph:
       tiff_url:
         type: string
         doc: URL to the remote TIFF file
+    requirements:
+      ResourceRequirement:
+        coresMax: 2
+        ramMax: 4096
     outputs:
       - id: output_cog
         type: Directory
