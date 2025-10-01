@@ -17,106 +17,106 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    
+
     outputs:
       image-digest: ${{ steps.build.outputs.digest }}
-      image-uri: ${{ steps.digest.outputs.image }} 
-    
+      image-uri: ${{ steps.digest.outputs.image }}
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-        aws-region: us-east-1
-        role-session-name: GitHubActions-ECR-Push
-    
-    - name: Login to Amazon ECR Public
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
-      with:
-        registry-type: public
-    
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.ECR_REGISTRY }}
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=sha,prefix={{branch}}-
-          type=raw,value=latest,enable={{is_default_branch}}
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-    
-    - name: Build and push Docker image
-      id: build
-      uses: docker/build-push-action@v5
-      with:
-        context: ./src
-        platforms: linux/amd64
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        outputs: type=registry
-    
-    - name: Get image digest
-      id: digest
-      run: |
-        echo "digest=${{ steps.build.outputs.digest }}" >> $GITHUB_OUTPUT
-        echo "image=${{ env.ECR_REGISTRY }}@${{ steps.build.outputs.digest }}" >> $GITHUB_OUTPUT
-    
-    - name: Output image information
-      run: |
-        echo "Image pushed successfully!"
-        echo "Registry: ${{ env.ECR_REGISTRY }}"
-        echo "Digest: ${{ steps.digest.outputs.digest }}"
-        echo "Full image URI: ${{ steps.digest.outputs.image }}"
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActions-ECR-Push
+
+      - name: Login to Amazon ECR Public
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          registry-type: public
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.ECR_REGISTRY }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./src
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=registry
+
+      - name: Get image digest
+        id: digest
+        run: |
+          echo "digest=${{ steps.build.outputs.digest }}" >> $GITHUB_OUTPUT
+          echo "image=${{ env.ECR_REGISTRY }}@${{ steps.build.outputs.digest }}" >> $GITHUB_OUTPUT
+
+      - name: Output image information
+        run: |
+          echo "Image pushed successfully!"
+          echo "Registry: ${{ env.ECR_REGISTRY }}"
+          echo "Digest: ${{ steps.digest.outputs.digest }}"
+          echo "Full image URI: ${{ steps.digest.outputs.image }}"
 
   deploy-to-eodh:
     runs-on: ubuntu-latest
     needs: build-and-push
     permissions:
       contents: read
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Deploy CWL to EODH
-      run: |
-        # Read the CWL file and replace the Docker image placeholder
-        sed "s|tif2cog:latest|${{ needs.build-and-push.outputs.image-uri }}|g" tiff_to_cog.cwl > tiff_to_cog-deployed.cwl
-        
-        echo "Deploying to EODH API..."
-        echo "Docker image: ${{ needs.build-and-push.outputs.image-uri }}"
-        
-        # Deploy to EODH API and capture response
-        RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT \
-          -H "Content-Type: application/cwl+yaml" \
-          -H "Authorization: Bearer ${{ secrets.EODH_TOKEN }}" \
-          --data-binary @tiff_to_cog-deployed.cwl \
-          "https://eodatahub.org.uk/api/catalogue/stac/catalogs/user/catalogs/airbus-order-testing/processes/tiff_to_cog")
-        
-        # Split response body and status code
-        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-        RESPONSE_BODY=$(echo "$RESPONSE" | head -n -1)
-        
-        echo "HTTP Status Code: $HTTP_CODE"
-        echo "Response Body:"
-        echo "$RESPONSE_BODY"
-        
-        # Check if deployment was successful (expecting 204 for successful PUT)
-        if [ "$HTTP_CODE" = "204" ]; then
-          echo "✅ Successfully deployed CWL workflow to EODH!"
-        else
-          echo "❌ Deployment failed with HTTP status: $HTTP_CODE"
-          echo "Expected status code: 204"
-          exit 1
-        fi
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy CWL to EODH
+        run: |
+          # Read the CWL file and replace the Docker image placeholder
+          sed "s|tif2cog:latest|${{ needs.build-and-push.outputs.image-uri }}|g" tiff_to_cog.cwl > tiff_to_cog-deployed.cwl
+
+          echo "Deploying to EODH API..."
+          echo "Docker image: ${{ needs.build-and-push.outputs.image-uri }}"
+
+          # Deploy to EODH API and capture response
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X PUT \
+            -H "Content-Type: application/cwl+yaml" \
+            -H "Authorization: Bearer ${{ secrets.EODH_TOKEN }}" \
+            --data-binary @tiff_to_cog-deployed.cwl \
+            "https://eodatahub.org.uk/api/catalogue/stac/catalogs/user/catalogs/${{ vars.EODH_WORKSPACE }}/processes/tiff_to_cog")
+
+          # Split response body and status code
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          RESPONSE_BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "HTTP Status Code: $HTTP_CODE"
+          echo "Response Body:"
+          echo "$RESPONSE_BODY"
+
+          # Check if deployment was successful (expecting 204 for successful PUT)
+          if [ "$HTTP_CODE" = "204" ]; then
+            echo "✅ Successfully deployed CWL workflow to EODH!"
+          else
+            echo "❌ Deployment failed with HTTP status: $HTTP_CODE"
+            echo "Expected status code: 204"
+            exit 1
+          fi
