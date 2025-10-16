@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 WORKFLOW_CONFIG = {
     "cwl_file": "tiff_to_cog.cwl",  # Name of the CWL workflow file
     "workflow_id": "tiff-to-cog",  # ID of the workflow in the CWL file
-    "input_param": "tiff_url",  # Input parameter name
-    "test_input": "https://download.osgeo.org/geotiff/samples/spot/chicago/UTM2GTIF.TIF",  # Test input value
+    "input_param": "stac_item_url",  # Input parameter name
+    "test_input": "https://gist.githubusercontent.com/geodowd/fbcdd4f81349f96e911c6aaae088540a/raw/6534c3d3832e2b8a1f6af361ef039910107e5406/test_stac_item_public_txt.json",  # Test STAC item URL
     "output_dir_name": "output_cog",  # Expected output directory name
 }
 

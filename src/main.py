@@ -4,11 +4,19 @@ import argparse
 from pathlib import Path
 import sys
 import logging
+import os
 import boto3
 from typing import Tuple
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
-from stac_utils import create_stac_catalog
-from gdal_utils import run_gdal_translate, parse_gdal_options, get_output_cog_path
+from stac_utils import create_stac_catalog_from_item
+from gdal_utils import (
+    run_gdal_translate,
+    parse_gdal_options,
+    get_output_cog_path,
+    is_tiff_asset,
+    copy_asset,
+    download_stac_item,
+)
 from validation import ValidationError, validate_input_url, validate_downloaded_file
 
 logging.basicConfig(
@@ -33,13 +41,13 @@ def parse_args() -> argparse.Namespace:
 
     Returns:
         Namespace containing the parsed arguments:
-            - tiff_url: URL to remote TIFF file
+            - stac_item_url: URL to STAC item JSON file
             - gdal_options: Optional JSON string with GDAL creation options
     """
     parser = argparse.ArgumentParser(
-        description="Convert TIFF files to Cloud Optimized GeoTIFF (COG) format"
+        description="Convert STAC item TIFF assets to Cloud Optimized GeoTIFF (COG) format"
     )
-    parser.add_argument("--tiff_url", type=str, help="URL to remote TIFF file")
+    parser.add_argument("--stac_item_url", type=str, help="URL to STAC item JSON file")
     parser.add_argument(
         "--gdal-options",
         type=str,
@@ -74,16 +82,17 @@ def parse_eodatahub_url(url: str) -> Tuple[str, str, str]:
 
 
 def main() -> None:
-    """Main entry point for the TIFF to COG conversion script.
+    """Main entry point for the STAC item to COG conversion script.
 
     Handles the workflow of:
     1. Parsing command line arguments
-    2. Validating input URL
+    2. Validating input STAC item URL
     3. Parsing optional GDAL options (uses defaults if not provided)
-    4. Downloading TIFF file if from EODH workspace
-    5. Validating downloaded file
-    6. Converting TIFF to COG format with specified options
-    7. Creating STAC catalog with metadata
+    4. Downloading and parsing STAC item JSON
+    5. Processing each asset in the STAC item:
+       - Convert TIFF assets to COG format
+       - Copy non-TIFF assets to output directory
+    6. Creating output STAC catalog with updated asset references
 
     Raises:
         SystemExit: If required arguments are missing or any step fails
@@ -91,13 +100,13 @@ def main() -> None:
     try:
         args = parse_args()
 
-        if not args.tiff_url:
-            logging.error("You must provide a --tiff_url")
+        if not args.stac_item_url:
+            logging.error("You must provide a --stac_item_url")
             sys.exit(1)
 
         # Validate input URL before processing
         try:
-            validate_input_url(args.tiff_url)
+            validate_input_url(args.stac_item_url)
         except ValidationError as e:
             logging.error(f"Input validation failed: {e}")
             sys.exit(1)
@@ -109,31 +118,123 @@ def main() -> None:
             logging.error(f"Invalid GDAL options: {e}")
             sys.exit(1)
 
-        if "eodatahub-workspaces.org.uk" in args.tiff_url:
-            # EODH workspace URL - parse and download from S3
-            logging.info("EODH workspace URL - parsing and downloading from S3")
-            bucket_name, key, tiff_url = parse_eodatahub_url(args.tiff_url)
-            logging.info(f"Downloading from S3: {bucket_name}, {key}, {tiff_url}")
-            download_file_from_s3(bucket_name, key, tiff_url)
+        # Download and parse STAC item
+        try:
+            stac_item = download_stac_item(args.stac_item_url)
+        except RuntimeError as e:
+            logging.error(f"Failed to download STAC item: {e}")
+            sys.exit(1)
 
-            # Validate downloaded file
+        # Process assets
+        processed_assets = {}
+        output_dir = "output_cog"
+
+        for asset_key, asset in stac_item.get("assets", {}).items():
+            asset_href = asset.get("href")
+            if not asset_href:
+                logging.warning(f"Asset {asset_key} has no href, skipping")
+                continue
+
+            logging.info(f"Processing asset: {asset_key}")
+
+            # Check if this is an EODH workspace URL that needs S3 download
+            if "eodatahub-workspaces.org.uk" in asset_href:
+                logging.info(
+                    f"EODH workspace URL detected for asset {asset_key} - parsing and downloading from S3"
+                )
+                try:
+                    bucket_name, key, local_path = parse_eodatahub_url(asset_href)
+                    logging.info(
+                        f"Downloading from S3: {bucket_name}, {key}, {local_path}"
+                    )
+                    download_file_from_s3(bucket_name, key, local_path)
+
+                    # Validate downloaded file
+                    try:
+                        validate_downloaded_file(local_path)
+                    except ValidationError as e:
+                        logging.error(f"Downloaded file validation failed: {e}")
+                        sys.exit(1)
+
+                    # Use local path for further processing
+                    asset_href = local_path
+
+                except Exception as e:
+                    logging.error(f"Failed to download EODH asset {asset_key}: {e}")
+                    sys.exit(1)
+
+            if is_tiff_asset(asset):
+                # Convert TIFF to COG
+                logging.info(f"Converting TIFF asset {asset_key} to COG")
+                try:
+                    # Get output path for COG
+                    filename = Path(asset_href.split("?")[0]).name
+                    output_cog = get_output_cog_path(filename, output_dir)
+
+                    # Convert to COG
+                    run_gdal_translate(asset_href, output_cog, gdal_options)
+
+                    # Get file size
+                    file_size = os.path.getsize(output_cog)
+
+                    # Determine media type
+                    media_type = "image/tiff; application=geotiff"
+
+                    processed_assets[asset_key] = {
+                        "href": f"./{Path(output_cog).name}",
+                        "size": file_size,
+                        "type": media_type,
+                    }
+
+                    logging.info(
+                        f"Successfully converted {asset_key} to COG: {output_cog}"
+                    )
+
+                except Exception as e:
+                    logging.error(f"Failed to convert TIFF asset {asset_key}: {e}")
+                    sys.exit(1)
+            else:
+                # Copy non-TIFF asset
+                logging.info(f"Copying non-TIFF asset {asset_key}")
+                try:
+                    copied_path = copy_asset(
+                        asset_href, output_dir, preserve_structure=True
+                    )
+
+                    # Get file size
+                    file_size = os.path.getsize(copied_path)
+
+                    # Determine media type from original asset or file extension
+                    media_type = asset.get("type", "application/octet-stream")
+
+                    # Create relative path for STAC item
+                    relative_path = f"./{Path(copied_path).name}"
+
+                    processed_assets[asset_key] = {
+                        "href": relative_path,
+                        "size": file_size,
+                        "type": media_type,
+                    }
+
+                    logging.info(f"Successfully copied {asset_key} to: {copied_path}")
+
+                except Exception as e:
+                    logging.error(f"Failed to copy asset {asset_key}: {e}")
+                    sys.exit(1)
+
+        # Create output STAC catalog
+        if processed_assets:
             try:
-                validate_downloaded_file(tiff_url)
-            except ValidationError as e:
-                logging.error(f"Downloaded file validation failed: {e}")
+                create_stac_catalog_from_item(stac_item, processed_assets, output_dir)
+                logging.info(
+                    f"Successfully created STAC catalog with {len(processed_assets)} assets"
+                )
+            except Exception as e:
+                logging.error(f"Failed to create STAC catalog: {e}")
                 sys.exit(1)
         else:
-            # Regular URL - use directly
-            logging.info("Regular URL - using directly")
-            tiff_url = args.tiff_url
-
-        # Get output path and convert to COG with options
-        logging.info(f"Tiff path: {tiff_url}")
-        url_name = Path(tiff_url.split("?")[0]).name
-        output_cog = get_output_cog_path(url_name)
-        run_gdal_translate(tiff_url, output_cog, gdal_options)
-
-        create_stac_catalog(output_cog)
+            logging.error("No assets were processed successfully")
+            sys.exit(1)
 
     # Validation errors
     except ValidationError as e:

@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 
 # Constants for validation
-ALLOWED_URL_SCHEMES = {"http", "https", "s3"}
+ALLOWED_URL_SCHEMES = {"http", "https", "s3", "file"}
 ALLOWED_FILE_EXTENSIONS = {".tif", ".tiff", ".gtiff", ".geotiff"}
 MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10 GB
 BLOCKED_HOSTS = {
@@ -255,9 +255,11 @@ def validate_input_url(url: str) -> None:
     """Validate input URL before processing.
 
     Performs URL validation and file extension check.
+    For STAC item URLs, validates JSON extension or API endpoints.
+    For TIFF URLs, validates TIFF extension.
 
     Args:
-        url: URL to the TIFF file
+        url: URL to the STAC item JSON file or TIFF file
 
     Raises:
         ValidationError: If any validation fails
@@ -266,9 +268,19 @@ def validate_input_url(url: str) -> None:
 
     # Extract filename from URL (remove query parameters)
     url_path = url.split("?")[0]
-    validate_file_extension(url_path)
 
-    logging.info(f"Input URL validation passed: {url}")
+    # Check if it's a STAC item (JSON file or API endpoint) or TIFF file
+    if (
+        url_path.lower().endswith(".json")
+        or "api/catalogue/stac" in url.lower()
+        or "stac" in url.lower()
+    ):
+        # STAC item validation - just check it's a valid URL
+        logging.info(f"STAC item URL validation passed: {url}")
+    else:
+        # TIFF file validation
+        validate_file_extension(url_path)
+        logging.info(f"TIFF URL validation passed: {url}")
 
 
 def validate_downloaded_file(filepath: str, max_size: Optional[int] = None) -> None:

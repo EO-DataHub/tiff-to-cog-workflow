@@ -2,3 +2,4 @@ pystac
 boto3
 rasterio
 shapely
+requests
