@@ -2,7 +2,6 @@
 
 import pystac
 import datetime
-import os
 from pathlib import Path
 import pystac.utils
 import logging
@@ -80,85 +79,92 @@ def extract_geotiff_metadata(cog_path: str) -> Dict[str, Any]:
         return metadata
 
 
-def create_stac_catalog(cog_path: str) -> None:
-    """Create a STAC catalog and item with real metadata from the COG file.
+def create_stac_catalog_from_item(
+    source_stac_item: Dict[str, any],
+    processed_assets: Dict[str, Dict[str, any]],
+    output_dir: str,
+) -> None:
+    """Create a STAC catalog and item from a source STAC item with processed assets.
 
-    Creates a STAC catalog containing a single item representing the COG file.
-    The catalog and item JSON files are saved in the same directory as the COG.
-    All metadata is extracted from the actual file including projection, spatial
-    resolution, and band information.
+    Creates a STAC catalog containing an item based on the source STAC item,
+    but with updated assets pointing to the processed files (COGs and copied assets).
+    All metadata from the source item is preserved, with only asset hrefs and
+    file sizes updated.
 
     Args:
-        cog_path: Path to the Cloud Optimized GeoTIFF file
+        source_stac_item: Original STAC item dictionary
+        processed_assets: Dictionary mapping asset keys to their processed file info
+                         Each value should contain: {'href': str, 'size': int, 'type': str}
+        output_dir: Directory where the STAC files will be saved
 
     Raises:
-        Exception: If metadata extraction fails
+        Exception: If STAC creation fails
     """
-    output_dir = Path(cog_path).parent  # This will be 'output_cog'
-    name = Path(cog_path).stem
+    output_dir_path = Path(output_dir)
+    output_dir_path.mkdir(exist_ok=True)
 
-    # Extract real metadata from the GeoTIFF
-    try:
-        metadata = extract_geotiff_metadata(cog_path)
-    except Exception as e:
-        logging.error(f"Failed to extract GeoTIFF metadata: {e}")
-        raise
+    # Use source item ID or generate one
+    item_id = source_stac_item.get("id", "processed_item")
 
     # Create catalog
-    cat = pystac.Catalog(id="catalog", description="tiff-to-cog-output")
-    # Set the self_href for the catalog
-    cat_path = output_dir / "catalog.json"
+    cat = pystac.Catalog(id="catalog", description="stac-item-to-cog-output")
+    cat_path = output_dir_path / "catalog.json"
     cat.set_self_href(str(cat_path))
 
-    # Create properties with additional metadata
-    properties = {
-        "created": pystac.utils.datetime_to_str(datetime.datetime.now()),
-        "updated": pystac.utils.datetime_to_str(datetime.datetime.now()),
-    }
+    # Copy properties from source item, updating timestamps
+    properties = source_stac_item.get("properties", {}).copy()
+    properties["created"] = pystac.utils.datetime_to_str(datetime.datetime.now())
+    properties["updated"] = pystac.utils.datetime_to_str(datetime.datetime.now())
 
-    # Add projection extension properties if EPSG code is available
-    if metadata.get("epsg"):
-        properties["proj:epsg"] = metadata["epsg"]
-    if metadata.get("crs"):
-        properties["proj:wkt2"] = metadata["crs"]
-
-    # Add proj:shape (height, width) and proj:transform
-    properties["proj:shape"] = [metadata["height"], metadata["width"]]
-    properties["proj:transform"] = metadata["transform"]
-
-    # Calculate spatial resolution from the transform
-    # Transform[0] is pixel width, transform[4] is pixel height (usually negative)
-    spatial_resolution = abs(metadata["transform"][0])
-
-    # Add raster metadata
-    properties["raster:bands"] = [
-        {
-            "data_type": metadata["dtype"],
-            "spatial_resolution": spatial_resolution,
-        }
-        for _ in range(metadata["count"])
-    ]
-
-    # Create STAC item with real geometry and bbox
+    # Create STAC item with source geometry, bbox, and datetime
     item = pystac.Item(
-        id=name,
-        geometry=metadata["geometry"],
-        bbox=metadata["bbox"],
-        datetime=datetime.datetime.now(),
+        id=item_id,
+        geometry=source_stac_item.get("geometry"),
+        bbox=source_stac_item.get("bbox"),
+        datetime=source_stac_item.get("datetime", datetime.datetime.now()),
         properties=properties,
     )
-    item.add_asset(
-        name,
-        pystac.Asset(
-            href=str(Path(cog_path).name),
-            media_type=pystac.MediaType.GEOTIFF,
-            roles=["data"],
-            extra_fields={"file:size": os.path.getsize(cog_path)},
-        ),
-    )
+
+    # Add STAC extensions from source item
+    stac_extensions = source_stac_item.get("stac_extensions", [])
+    if stac_extensions:
+        item.stac_extensions = stac_extensions
+
+    # Add processed assets
+    for asset_key, asset_info in processed_assets.items():
+        # Get original asset metadata
+        original_asset = source_stac_item.get("assets", {}).get(asset_key, {})
+
+        # Create new asset with updated href and file size
+        new_asset = pystac.Asset(
+            href=asset_info["href"],
+            media_type=asset_info.get(
+                "type", original_asset.get("type", "application/octet-stream")
+            ),
+            roles=original_asset.get("roles", ["data"]),
+            title=original_asset.get("title"),
+            description=original_asset.get("description"),
+            extra_fields={"file:size": asset_info["size"]},
+        )
+
+        # Copy any additional fields from original asset
+        for key, value in original_asset.items():
+            if key not in ["href", "type", "roles", "title", "description"]:
+                new_asset.extra_fields[key] = value
+
+        item.add_asset(asset_key, new_asset)
+
     # Set the self_href for the item
-    item_path = output_dir / f"{name}.json"
+    item_path = output_dir_path / f"{item_id}.json"
     item.set_self_href(str(item_path))
+
     cat.add_item(item)
-    # Save catalog and item flat in output_cog
-    cat.save(catalog_type=pystac.CatalogType.SELF_CONTAINED, dest_href=str(output_dir))
+
+    # Save catalog and item
+    cat.save(
+        catalog_type=pystac.CatalogType.SELF_CONTAINED, dest_href=str(output_dir_path)
+    )
+
+    logging.info(
+        f"Created STAC catalog with {len(processed_assets)} assets in {output_dir}"
+    )

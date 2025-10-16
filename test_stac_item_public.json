@@ -1,0 +1,63 @@
+{
+    "type": "Feature",
+    "stac_version": "1.0.0",
+    "stac_extensions": [],
+    "id": "test-item",
+    "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [
+                    -87.58241405497024,
+                    41.83332681104153
+                ],
+                [
+                    -87.58317419093471,
+                    41.916996744886504
+                ],
+                [
+                    -87.66746223464858,
+                    41.91653772735617
+                ],
+                [
+                    -87.66659225237332,
+                    41.83286913124328
+                ],
+                [
+                    -87.58241405497024,
+                    41.83332681104153
+                ]
+            ]
+        ]
+    },
+    "bbox": [
+        -87.66746223464858,
+        41.83286913124328,
+        -87.58241405497024,
+        41.916996744886504
+    ],
+    "properties": {
+        "datetime": "2023-01-01T00:00:00Z",
+        "title": "Test STAC Item",
+        "description": "A test STAC item with TIFF assets for COG conversion"
+    },
+    "links": [],
+    "assets": {
+        "image": {
+            "href": "https://download.osgeo.org/geotiff/samples/spot/chicago/UTM2GTIF.TIF",
+            "type": "image/tiff; application=geotiff",
+            "title": "Main TIFF Image",
+            "roles": [
+                "data"
+            ]
+        },
+        "metadata": {
+            "href": "https://microsoftedge.github.io/Demos/json-dummy-data/64KB.json",
+            "type": "application/json",
+            "title": "Metadata File",
+            "roles": [
+                "metadata"
+            ]
+        }
+    }
+}
