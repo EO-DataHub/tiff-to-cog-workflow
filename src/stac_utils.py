@@ -95,7 +95,7 @@ def create_stac_catalog_from_item(
         source_stac_item: Original STAC item dictionary
         processed_assets: Dictionary mapping asset keys to their processed file info
                          Each value should contain: {'href': str, 'size': int, 'type': str}
-        output_dir: Directory where the STAC files will be saved
+        output_dir: Directory where the STAC files will be saved (item-specific directory)
 
     Raises:
         Exception: If STAC creation fails
@@ -106,9 +106,10 @@ def create_stac_catalog_from_item(
     # Use source item ID or generate one
     item_id = source_stac_item.get("id", "processed_item")
 
-    # Create catalog
+    # Create catalog in parent directory
+    parent_dir = output_dir_path.parent
     cat = pystac.Catalog(id="catalog", description="stac-item-to-cog-output")
-    cat_path = output_dir_path / "catalog.json"
+    cat_path = parent_dir / "catalog.json"
     cat.set_self_href(str(cat_path))
 
     # Copy properties from source item, updating timestamps
@@ -161,10 +162,8 @@ def create_stac_catalog_from_item(
     cat.add_item(item)
 
     # Save catalog and item
-    cat.save(
-        catalog_type=pystac.CatalogType.SELF_CONTAINED, dest_href=str(output_dir_path)
-    )
+    cat.save(catalog_type=pystac.CatalogType.SELF_CONTAINED, dest_href=str(parent_dir))
 
     logging.info(
-        f"Created STAC catalog with {len(processed_assets)} assets in {output_dir}"
+        f"Created STAC catalog with {len(processed_assets)} assets in {parent_dir}"
     )

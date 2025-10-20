@@ -129,6 +129,11 @@ def main() -> None:
         processed_assets = {}
         output_dir = "output_cog"
 
+        # Create item-specific directory
+        item_id = stac_item.get("id", "processed_item")
+        item_output_dir = f"{output_dir}/{item_id}"
+        Path(item_output_dir).mkdir(parents=True, exist_ok=True)
+
         for asset_key, asset in stac_item.get("assets", {}).items():
             asset_href = asset.get("href")
             if not asset_href:
@@ -169,7 +174,7 @@ def main() -> None:
                 try:
                     # Get output path for COG
                     filename = Path(asset_href.split("?")[0]).name
-                    output_cog = get_output_cog_path(filename, output_dir)
+                    output_cog = get_output_cog_path(filename, item_output_dir)
 
                     # Convert to COG
                     run_gdal_translate(asset_href, output_cog, gdal_options)
@@ -198,7 +203,7 @@ def main() -> None:
                 logging.info(f"Copying non-TIFF asset {asset_key}")
                 try:
                     copied_path = copy_asset(
-                        asset_href, output_dir, preserve_structure=True
+                        asset_href, item_output_dir, preserve_structure=False
                     )
 
                     # Get file size
@@ -225,7 +230,9 @@ def main() -> None:
         # Create output STAC catalog
         if processed_assets:
             try:
-                create_stac_catalog_from_item(stac_item, processed_assets, output_dir)
+                create_stac_catalog_from_item(
+                    stac_item, processed_assets, item_output_dir
+                )
                 logging.info(
                     f"Successfully created STAC catalog with {len(processed_assets)} assets"
                 )

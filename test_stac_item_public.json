@@ -52,12 +52,9 @@
             ]
         },
         "metadata": {
-            "href": "https://microsoftedge.github.io/Demos/json-dummy-data/64KB.json",
-            "type": "application/json",
-            "title": "Metadata File",
-            "roles": [
-                "metadata"
-            ]
+            "href": "https://example-files.online-convert.com/document/txt/example.txt",
+            "type": "text/plain",
+            "title": "Text File"
         }
     }
 }
