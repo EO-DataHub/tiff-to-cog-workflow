@@ -82,6 +82,7 @@ jobs:
   deploy-to-eodh:
     runs-on: ubuntu-latest
     needs: build-and-push
+    environment: ${{ github.ref_name }}
     permissions:
       contents: read
 
