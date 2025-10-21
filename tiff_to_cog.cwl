@@ -1,7 +1,7 @@
 cwlVersion: v1.2
 $namespaces:
   s: https://schema.org/
-s:softwareVersion: 0.1.3
+s:softwareVersion: 0.1.4
 schemas:
   - http://schema.org/version/9.0/schemaorg-current-http.rdf
 $graph:

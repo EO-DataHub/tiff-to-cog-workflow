@@ -17,7 +17,12 @@ from gdal_utils import (
     copy_asset,
     download_stac_item,
 )
-from validation import ValidationError, validate_input_url, validate_downloaded_file
+from validation import (
+    ValidationError,
+    validate_input_url,
+    validate_downloaded_file,
+    validate_file_size,
+)
 
 logging.basicConfig(
     level=logging.DEBUG, format="[%(levelname)s] %(message)s", stream=sys.stderr
@@ -142,6 +147,9 @@ def main() -> None:
 
             logging.info(f"Processing asset: {asset_key}")
 
+            # Check asset type first to determine appropriate validation
+            is_tiff = is_tiff_asset(asset)
+
             # Check if this is an EODH workspace URL that needs S3 download
             if "eodatahub-workspaces.org.uk" in asset_href:
                 logging.info(
@@ -154,9 +162,12 @@ def main() -> None:
                     )
                     download_file_from_s3(bucket_name, key, local_path)
 
-                    # Validate downloaded file
+                    # Apply appropriate validation based on asset type
                     try:
-                        validate_downloaded_file(local_path)
+                        if is_tiff:
+                            validate_downloaded_file(local_path)
+                        else:
+                            validate_file_size(local_path)
                     except ValidationError as e:
                         logging.error(f"Downloaded file validation failed: {e}")
                         sys.exit(1)
@@ -168,7 +179,7 @@ def main() -> None:
                     logging.error(f"Failed to download EODH asset {asset_key}: {e}")
                     sys.exit(1)
 
-            if is_tiff_asset(asset):
+            if is_tiff:
                 # Convert TIFF to COG
                 logging.info(f"Converting TIFF asset {asset_key} to COG")
                 try:
