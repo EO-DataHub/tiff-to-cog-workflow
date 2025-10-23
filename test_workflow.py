@@ -40,14 +40,15 @@ WORKFLOW_CONFIG = {
 }
 
 
-def run_cwl_workflow(test_input):
+def run_cwl_workflow(test_input, aws_credentials=None):
     """Run the CWL workflow using Python factory and return success status."""
     logger.info(f"🔄 Running CWL workflow with input '{test_input}'")
 
     try:
         # Setup CWL runtime
         runtime_context = cwltool.main.RuntimeContext()
-        runtime_context.no_container = True
+        # Use Docker container instead of no_container=True
+        runtime_context.no_container = False
         fac = cwltool.factory.Factory(runtime_context=runtime_context)
 
         # Get paths
@@ -66,7 +67,18 @@ def run_cwl_workflow(test_input):
 
             # Make and run the workflow
             workflow = fac.make(cwl_uri)
-            workflow(**{WORKFLOW_CONFIG["input_param"]: test_input})
+
+            # Prepare workflow inputs
+            workflow_inputs = {WORKFLOW_CONFIG["input_param"]: test_input}
+
+            # Add AWS credentials if provided
+            if aws_credentials:
+                workflow_inputs.update(aws_credentials)
+                logger.info("🔑 Using provided AWS credentials")
+            else:
+                logger.warning("⚠️  No AWS credentials provided - S3 downloads may fail")
+
+            workflow(**workflow_inputs)
 
             # Copy generated files to persistent location
             persistent_dir = os.path.join(output_dir, "latest_run")
@@ -165,6 +177,27 @@ def parse_args():
         action="store_true",
         help="Keep output directory after test completion (for debugging)",
     )
+    parser.add_argument(
+        "--aws-access-key-id",
+        type=str,
+        help="AWS Access Key ID for S3 access",
+    )
+    parser.add_argument(
+        "--aws-secret-access-key",
+        type=str,
+        help="AWS Secret Access Key for S3 access",
+    )
+    parser.add_argument(
+        "--aws-session-token",
+        type=str,
+        help="AWS Session Token for temporary credentials",
+    )
+    parser.add_argument(
+        "--aws-region",
+        type=str,
+        default="us-east-1",
+        help="AWS region for S3 access (default: us-east-1)",
+    )
     return parser.parse_args()
 
 
@@ -204,7 +237,21 @@ def main():
     # Run the CWL workflow
     test_input = args.input
 
-    success, output_dir, error = run_cwl_workflow(test_input)
+    # Prepare AWS credentials if provided
+    aws_credentials = None
+    if args.aws_access_key_id and args.aws_secret_access_key:
+        aws_credentials = {
+            "aws_access_key_id": args.aws_access_key_id,
+            "aws_secret_access_key": args.aws_secret_access_key,
+            "aws_region": args.aws_region,
+        }
+        if args.aws_session_token:
+            aws_credentials["aws_session_token"] = args.aws_session_token
+        logger.info("🔑 AWS credentials provided via command line arguments")
+    else:
+        logger.warning("⚠️  No AWS credentials provided - S3 downloads may fail")
+
+    success, output_dir, error = run_cwl_workflow(test_input, aws_credentials)
 
     if not success:
         logger.error("❌ CWL workflow failed")

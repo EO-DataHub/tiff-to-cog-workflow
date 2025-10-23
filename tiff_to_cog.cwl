@@ -16,8 +16,8 @@ $graph:
         doc: URL to the STAC item JSON file
     requirements:
       ResourceRequirement:
-        coresMax: 2
-        ramMax: 4096
+        coresMax: 4
+        ramMax: 8192
     outputs:
       - id: output_cog
         type: Directory
