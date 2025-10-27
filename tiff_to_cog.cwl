@@ -1,7 +1,7 @@
 cwlVersion: v1.2
 $namespaces:
   s: https://schema.org/
-s:softwareVersion: 0.1.4
+s:softwareVersion: 0.2.0
 schemas:
   - http://schema.org/version/9.0/schemaorg-current-http.rdf
 $graph:
@@ -12,8 +12,11 @@ $graph:
       Workflow to convert STAC item TIFF assets to Cloud Optimized GeoTIFF (COG) format and output a STAC catalog using a custom Python script in a Docker image.
     inputs:
       stac_item_url:
-        type: string
+        type: string?
         doc: URL to the STAC item JSON file
+      stac_item:
+        type: string?
+        doc: Full STAC item as JSON string
     requirements:
       ResourceRequirement:
         coresMax: 4
@@ -28,6 +31,7 @@ $graph:
         run: "#tiff-to-cog-tool"
         in:
           stac_item_url: stac_item_url
+          stac_item: stac_item
         out:
           - output_cog
   - class: CommandLineTool
@@ -43,11 +47,17 @@ $graph:
     baseCommand: [python, /usr/bin/main.py]
     inputs:
       stac_item_url:
-        type: string
+        type: string?
         inputBinding:
           position: 1
           prefix: --stac_item_url
         doc: URL to the STAC item JSON file
+      stac_item:
+        type: string?
+        inputBinding:
+          position: 2
+          prefix: --stac_item
+        doc: Full STAC item as JSON string
     outputs:
       output_cog:
         type: Directory

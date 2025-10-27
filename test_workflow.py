@@ -34,13 +34,13 @@ logger = logging.getLogger(__name__)
 WORKFLOW_CONFIG = {
     "cwl_file": "tiff_to_cog.cwl",  # Name of the CWL workflow file
     "workflow_id": "tiff-to-cog",  # ID of the workflow in the CWL file
-    "input_param": "stac_item_url",  # Input parameter name
+    "input_param": "stac_item_url",  # Input parameter name (can be stac_item_url or stac_item)
     "test_input": "https://gist.githubusercontent.com/geodowd/fbcdd4f81349f96e911c6aaae088540a/raw/8370927b8b567c6e4c6760d2221cc2b3f722e04c/test_stac_item_public.json",  # Test STAC item URL
     "output_dir_name": "output_cog",  # Expected output directory name
 }
 
 
-def run_cwl_workflow(test_input, aws_credentials=None):
+def run_cwl_workflow(test_input, aws_credentials=None, use_direct_json=False):
     """Run the CWL workflow using Python factory and return success status."""
     logger.info(f"🔄 Running CWL workflow with input '{test_input}'")
 
@@ -68,8 +68,23 @@ def run_cwl_workflow(test_input, aws_credentials=None):
             # Make and run the workflow
             workflow = fac.make(cwl_uri)
 
-            # Prepare workflow inputs
-            workflow_inputs = {WORKFLOW_CONFIG["input_param"]: test_input}
+            # Prepare workflow inputs based on input type
+            if use_direct_json:
+                # If direct JSON is being used, determine if test_input is a file path or JSON string
+                if os.path.exists(test_input):
+                    # It's a file path, read the JSON content
+                    with open(test_input, "r") as f:
+                        json_content = f.read()
+                    workflow_inputs = {"stac_item": json_content}
+                    logger.info("📄 Using STAC item from local file")
+                else:
+                    # Assume it's already a JSON string
+                    workflow_inputs = {"stac_item": test_input}
+                    logger.info("📄 Using STAC item from JSON string")
+            else:
+                # Use URL input (default)
+                workflow_inputs = {"stac_item_url": test_input}
+                logger.info("🌐 Using STAC item URL")
 
             # Add AWS credentials if provided
             if aws_credentials:
@@ -173,6 +188,11 @@ def parse_args():
         help=f"Test input value for {WORKFLOW_CONFIG['input_param']} parameter (default: {WORKFLOW_CONFIG['test_input']})",
     )
     parser.add_argument(
+        "--use-direct-json",
+        action="store_true",
+        help="Use direct JSON input instead of URL",
+    )
+    parser.add_argument(
         "--keep-output",
         action="store_true",
         help="Keep output directory after test completion (for debugging)",
@@ -251,7 +271,9 @@ def main():
     else:
         logger.warning("⚠️  No AWS credentials provided - S3 downloads may fail")
 
-    success, output_dir, error = run_cwl_workflow(test_input, aws_credentials)
+    success, output_dir, error = run_cwl_workflow(
+        test_input, aws_credentials, args.use_direct_json
+    )
 
     if not success:
         logger.error("❌ CWL workflow failed")

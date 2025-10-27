@@ -4,8 +4,8 @@ This repository provides a Common Workflow Language (CWL) workflow for convertin
 
 ## Overview
 
-- **Input:** URL to a remote TIFF file
-- **Output:** A directory (`output_cog`) containing the COG file, a STAC `catalog.json`, and a STAC item JSON
+- **Input:** URL to a STAC item JSON file OR a full STAC item as JSON string
+- **Output:** A directory (`output_cog`) containing COG files, a STAC `catalog.json`, and a STAC item JSON
 - **Docker Image:** [public.ecr.aws/i2j9m5r4/eodh/tif2cog:latest](https://gallery.ecr.aws/i2j9m5r4/eodh/tif2cog)
 
 ## Requirements
@@ -18,15 +18,26 @@ This repository provides a Common Workflow Language (CWL) workflow for convertin
 
 1. **Run the workflow:**
 
+   **Option A: Using a STAC item URL**
+
    ```bash
    cwltool tiff_to_cog.cwl#tiff-to-cog \
-     --tiff_url https://example.com/path/to/your.tif
+     --stac_item_url https://example.com/path/to/stac_item.json
    ```
+
+   **Option B: Using a full STAC item JSON string**
+
+   ```bash
+   cwltool tiff_to_cog.cwl#tiff-to-cog \
+     --stac_item '{"type":"Feature","stac_version":"1.0.0",...}'
+   ```
+
+   **Note:** You must provide exactly one of `stac_item_url` or `stac_item`, not both.
 
 2. **Outputs:**
    - The workflow will create an `output_cog` directory in the working directory.
    - Inside `output_cog` you will find:
-     - The COG file (e.g., `your_cog.tif`)
+     - COG files (converted from TIFF assets)
      - `catalog.json` (STAC catalog)
      - `<item_id>.json` (STAC item)
 
@@ -38,7 +49,7 @@ This repository provides a Common Workflow Language (CWL) workflow for convertin
 
 ## Example Output Structure
 
-```
+```text
 output_cog/
 ├── catalog.json
 ├── your_cog.tif

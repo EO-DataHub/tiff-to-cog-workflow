@@ -6,6 +6,7 @@ import sys
 import logging
 import os
 import time
+import json
 import boto3
 from typing import Tuple
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
@@ -211,12 +212,14 @@ def parse_args() -> argparse.Namespace:
     Returns:
         Namespace containing the parsed arguments:
             - stac_item_url: URL to STAC item JSON file
+            - stac_item: Full STAC item as JSON string
             - gdal_options: Optional JSON string with GDAL creation options
     """
     parser = argparse.ArgumentParser(
         description="Convert STAC item TIFF assets to Cloud Optimized GeoTIFF (COG) format"
     )
     parser.add_argument("--stac_item_url", type=str, help="URL to STAC item JSON file")
+    parser.add_argument("--stac_item", type=str, help="Full STAC item as JSON string")
     parser.add_argument(
         "--gdal-options",
         type=str,
@@ -333,29 +336,63 @@ def main() -> None:
     try:
         args = parse_args()
 
-        if not args.stac_item_url:
-            logging.error("You must provide a --stac_item_url")
+        # Validate that exactly one input method is provided
+        if bool(args.stac_item_url) == bool(args.stac_item):
+            if args.stac_item_url and args.stac_item:
+                logging.error(
+                    "Error: Cannot provide both --stac_item_url and --stac_item. Please provide exactly one."
+                )
+            else:
+                logging.error(
+                    "Error: Must provide either --stac_item_url or --stac_item"
+                )
             sys.exit(1)
 
-        # Validate input URL before processing
-        try:
-            validate_input_url(args.stac_item_url)
-        except ValidationError as e:
-            logging.error(f"Input validation failed: {e}")
-            sys.exit(1)
+        # Parse STAC item based on input method
+        if args.stac_item:
+            # Parse JSON string directly
+            try:
+                logging.info("Parsing STAC item from JSON string")
+                stac_item = json.loads(args.stac_item)
+
+                # Basic validation
+                if not isinstance(stac_item, dict):
+                    logging.error("STAC item must be a valid JSON object")
+                    sys.exit(1)
+
+                if stac_item.get("type") != "Feature":
+                    logging.error("STAC item must be of type 'Feature'")
+                    sys.exit(1)
+
+                if "assets" not in stac_item:
+                    logging.error("STAC item must contain 'assets'")
+                    sys.exit(1)
+
+                logging.info(
+                    f"Successfully parsed STAC item with {len(stac_item['assets'])} assets"
+                )
+            except json.JSONDecodeError as e:
+                logging.error(f"Failed to parse STAC item JSON: {e}")
+                sys.exit(1)
+        else:
+            # Download from URL (existing logic)
+            try:
+                validate_input_url(args.stac_item_url)
+            except ValidationError as e:
+                logging.error(f"Input validation failed: {e}")
+                sys.exit(1)
+
+            try:
+                stac_item = download_stac_item(args.stac_item_url)
+            except RuntimeError as e:
+                logging.error(f"Failed to download STAC item: {e}")
+                sys.exit(1)
 
         # Parse GDAL options (will use defaults if not provided)
         try:
             gdal_options = parse_gdal_options(args.gdal_options)
         except ValueError as e:
             logging.error(f"Invalid GDAL options: {e}")
-            sys.exit(1)
-
-        # Download and parse STAC item
-        try:
-            stac_item = download_stac_item(args.stac_item_url)
-        except RuntimeError as e:
-            logging.error(f"Failed to download STAC item: {e}")
             sys.exit(1)
 
         # Estimate required resources and check availability
