@@ -6,6 +6,7 @@ import sys
 import logging
 import os
 import time
+import shutil
 import boto3
 from typing import Tuple
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
@@ -34,6 +35,10 @@ logging.getLogger("boto3").setLevel(logging.WARNING)
 logging.getLogger("botocore").setLevel(logging.WARNING)
 logging.getLogger("s3transfer").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+# Directory configuration from environment variables with defaults
+DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/tmp")
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/tmp/output")
 
 
 class ProgressCallback:
@@ -258,16 +263,18 @@ def estimate_required_resources(stac_item: dict) -> dict:
     }
 
 
-def check_disk_space(required_mb: int, path: str = "/tmp") -> bool:
+def check_disk_space(required_mb: int, path: str = None) -> bool:
     """Check if sufficient disk space is available.
 
     Args:
         required_mb: Required disk space in MB
-        path: Path to check disk space for
+        path: Path to check disk space for (defaults to DOWNLOAD_DIR)
 
     Returns:
         True if sufficient space is available
     """
+    if path is None:
+        path = DOWNLOAD_DIR
     try:
         statvfs = os.statvfs(path)
         available_mb = (statvfs.f_frsize * statvfs.f_bavail) / (1024 * 1024)
@@ -287,11 +294,12 @@ def check_disk_space(required_mb: int, path: str = "/tmp") -> bool:
         return True  # Assume OK if we can't check
 
 
-def parse_eodatahub_url(url: str) -> Tuple[str, str, str]:
+def parse_eodatahub_url(url: str, download_dir: str = None) -> Tuple[str, str, str]:
     """Parse eodatahub-workspaces.org.uk URL to extract S3 bucket and key.
 
     Args:
         url: URL from eodatahub-workspaces.org.uk pointing to a TIFF file
+        download_dir: Directory where the file will be downloaded (defaults to DOWNLOAD_DIR)
 
     Returns:
         Tuple containing:
@@ -299,6 +307,8 @@ def parse_eodatahub_url(url: str) -> Tuple[str, str, str]:
             - key: S3 object key (path within bucket)
             - local_tiff_path: Local path where the file will be downloaded
     """
+    if download_dir is None:
+        download_dir = DOWNLOAD_DIR
     logging.info(f"Parsing EODH URL: {url}")
     url_parts = url.split("/")
     files_idx = url_parts.index("files")
@@ -306,7 +316,7 @@ def parse_eodatahub_url(url: str) -> Tuple[str, str, str]:
     workspace_name = url_parts[2].split(".")[0]
     key = f"{workspace_name}/" + "/".join(url_parts[files_idx + 2 :])
     file_name = key.split("/")[-1]
-    local_tiff_path = f"/tmp/{file_name}"
+    local_tiff_path = f"{download_dir}/{file_name}"
     logging.debug(
         {"bucket_name": bucket_name, "key": key, "local_tiff_path": local_tiff_path}
     )
@@ -389,7 +399,7 @@ def main() -> None:
 
         # Process assets
         processed_assets = {}
-        output_dir = "output_cog"
+        output_dir = OUTPUT_DIR
 
         # Create item-specific directory
         item_id = stac_item.get("id", "processed_item")
@@ -422,7 +432,9 @@ def main() -> None:
                     f"🌐 EODH workspace URL detected for asset {asset_key} - parsing and downloading from S3"
                 )
                 try:
-                    bucket_name, key, local_path = parse_eodatahub_url(asset_href)
+                    bucket_name, key, local_path = parse_eodatahub_url(
+                        asset_href, DOWNLOAD_DIR
+                    )
                     logging.info(
                         f"📥 S3 download details: bucket={bucket_name}, key={key}, local_path={local_path}"
                     )
@@ -532,6 +544,28 @@ def main() -> None:
                 logging.info(
                     f"✅ Successfully created STAC catalog with {len(processed_assets)} assets"
                 )
+
+                # Copy to CWL output directory if specified (for CWL workflow compatibility)
+                cwl_output_dir = os.environ.get("CWL_OUTPUT_DIR")
+                if cwl_output_dir and output_dir != cwl_output_dir:
+                    logging.info(
+                        f"📦 Copying output from {output_dir} to {cwl_output_dir} for CWL"
+                    )
+                    cwl_output_path = Path(cwl_output_dir)
+                    cwl_output_path.mkdir(parents=True, exist_ok=True)
+
+                    # Copy entire output directory contents to CWL output directory
+                    for item in Path(output_dir).iterdir():
+                        dest = cwl_output_path / item.name
+                        if item.is_dir():
+                            if dest.exists():
+                                shutil.rmtree(dest)
+                            shutil.copytree(item, dest)
+                        else:
+                            shutil.copy2(item, dest)
+
+                    logging.info(f"✅ Successfully copied output to {cwl_output_dir}")
+
             except Exception as e:
                 logging.error(f"❌ Failed to create STAC catalog: {e}")
                 sys.exit(1)

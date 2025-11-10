@@ -1,7 +1,7 @@
 cwlVersion: v1.2
 $namespaces:
   s: https://schema.org/
-s:softwareVersion: 0.1.4
+s:softwareVersion: 0.1.5
 schemas:
   - http://schema.org/version/9.0/schemaorg-current-http.rdf
 $graph:
@@ -40,6 +40,10 @@ $graph:
         dockerPull: tif2cog:latest
       NetworkAccess:
         networkAccess: true
+      EnvVarRequirement:
+        envDef:
+          OUTPUT_DIR: /tmp/output
+          CWL_OUTPUT_DIR: output_cog
     baseCommand: [python, /usr/bin/main.py]
     inputs:
       stac_item_url:
