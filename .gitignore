@@ -38,3 +38,8 @@ Thumbs.db
 venv/
 old/
 output/
+.cursor
+.specify
+specs
+
+output_cog/
