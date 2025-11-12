@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Environment files
+.env
+.env.local
+*.env
+
+# Logs
+*.log
+*.log.*
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# CWL outputs
+*.cwlout
+*.cwltmp
+*.cwl.log
+
+# Temporary files
+*.tmp
+*.bak
+*.out
+*.err
+*.lock
+
+# Output files
+output/
+*.tif
+*.tiff
+
+# Specify directory
+.specify/
+
+# Cursor
+.cursor/
+
+
+
+

@@ -2,177 +2,269 @@
 
 import json
 import logging
-import sys
+import os
 import shutil
+import tempfile
 import requests
 from pathlib import Path
-from typing import Dict, Optional
-from osgeo import gdal
+from typing import Dict
+
+from chunking_utils import (
+    calculate_chunk_size,
+    create_chunks,
+    process_chunk,
+    create_output_cog_dataset,
+)
+import rasterio
+from rasterio.enums import Resampling
+from rio_cogeo.cogeo import cog_translate
+from rio_cogeo.profiles import cog_profiles
 
 
-def get_default_gdal_options() -> Dict[str, str]:
-    """Get default GDAL creation options for COG conversion.
+def get_raster_metadata(file_path: str) -> Dict:
+    """Get raster metadata from a TIFF file.
+
+    Reads raster metadata using rasterio to get dimensions, bands, and data type.
+    This is a simplified version that just extracts metadata without complex memory calculations.
+
+    Args:
+        file_path: Path or URL to the TIFF file
 
     Returns:
-        Dictionary of default GDAL creation options with sensible defaults:
-        - COMPRESS: LZW compression (good balance of speed and size)
-        - BLOCKSIZE: 512 pixel tiles (standard for COGs)
-        - OVERVIEW_RESAMPLING: NEAREST neighbor (fast, preserves values)
+        Dictionary with keys:
+        - width (int): Raster width in pixels
+        - height (int): Raster height in pixels
+        - bands (int): Number of bands
+        - data_type (str): Data type (e.g., "uint8", "float32")
+        - bytes_per_pixel (int): Bytes per pixel
+        - crs: CRS object
+        - transform: Transform object
+
+    Raises:
+        ValueError: If file_path is invalid or file cannot be accessed
+        RuntimeError: If raster metadata cannot be read
     """
-    return {
-        "COMPRESS": "LZW",
-        "BLOCKSIZE": "512",
-        "OVERVIEW_RESAMPLING": "NEAREST",
+    # Data type to bytes per pixel mapping
+    dtype_to_bytes = {
+        "uint8": 1,
+        "int8": 1,
+        "uint16": 2,
+        "int16": 2,
+        "uint32": 4,
+        "int32": 4,
+        "float32": 4,
+        "float64": 8,
+        "complex64": 8,
+        "complex128": 16,
     }
 
+    try:
+        # Open raster file to read metadata
+        # Handle remote URLs by using /vsicurl/ prefix if needed
+        if file_path.startswith(("http://", "https://")):
+            input_path = f"/vsicurl/{file_path}"
+        else:
+            input_path = file_path
 
-def parse_gdal_options(options_str: Optional[str] = None) -> Dict[str, str]:
-    """Parse GDAL options from JSON string and merge with defaults.
+        with rasterio.open(input_path) as src:
+            width = src.width
+            height = src.height
+            bands = src.count
+            data_type = str(src.dtypes[0])  # Assume all bands have same dtype
+            crs = src.crs
+            transform = src.transform
 
-    User-provided options override defaults. Any GDAL creation option can be
-    specified, for example:
-    - COMPRESS: LZW, DEFLATE, ZSTD, WEBP, JPEG, NONE
-    - BLOCKSIZE: 256, 512, 1024, 2048
-    - PREDICTOR: 1 (none), 2 (horizontal), 3 (floating point)
-    - NUM_THREADS: ALL_CPUS or specific number
-    - OVERVIEW_RESAMPLING: NEAREST, BILINEAR, CUBIC, AVERAGE
+            # Get bytes per pixel from data type
+            bytes_per_pixel = dtype_to_bytes.get(
+                data_type, 4
+            )  # Default to 4 bytes if unknown
+
+            return {
+                "width": width,
+                "height": height,
+                "bands": bands,
+                "data_type": data_type,
+                "bytes_per_pixel": bytes_per_pixel,
+                "crs": crs,  # Keep as CRS object for rasterio compatibility
+                "transform": transform,  # Keep as Affine object for rasterio compatibility
+            }
+
+    except rasterio.errors.RasterioIOError as e:
+        error_msg = f"Failed to open raster file {file_path}: {e}"
+        logging.error(error_msg)
+        raise ValueError(error_msg) from e
+    except Exception as e:
+        error_msg = f"Failed to read raster metadata from {file_path}: {e}"
+        logging.error(error_msg)
+        raise RuntimeError(error_msg) from e
+
+
+def run_gdal_translate_chunked(
+    tiff_path: str,
+    output_path: str,
+) -> None:
+    """Convert a TIFF file to COG format using chunked processing.
+
+    Processes the file in chunks using rasterio windowed reading and writing
+    to avoid loading the entire file into memory. Uses default GDAL options.
+    Then reorganizes the file into proper COG-compliant structure using rio-cogeo.
 
     Args:
-        options_str: JSON string containing GDAL options, e.g.,
-                    '{"COMPRESS":"ZSTD","BLOCKSIZE":"1024"}'
-                    If None, returns default options only.
-
-    Returns:
-        Dictionary of GDAL creation options (user options merged with defaults)
+        tiff_path: Path or URL to the input TIFF file
+        output_path: Local filesystem path where the COG will be saved
 
     Raises:
-        ValueError: If JSON string is invalid or not a dictionary
-    """
-    defaults = get_default_gdal_options()
+        RuntimeError: If GDAL cannot open the input file or conversion fails
+        SystemExit: If conversion fails (exits with code 1)
 
-    if options_str is None:
-        return defaults
+    Example:
+        >>> run_gdal_translate_chunked(
+        ...     "https://example.com/large_file.tif",
+        ...     "output.tif"
+        ... )
+    """
+    # Create temporary file for initial chunked processing
+    tmp_file = tempfile.NamedTemporaryFile(suffix=".tif", delete=False)
+    tmp_path = tmp_file.name
+    tmp_file.close()
 
     try:
-        user_options = json.loads(options_str)
-        if not isinstance(user_options, dict):
-            raise ValueError("GDAL options must be a JSON object/dictionary")
+        # Get raster metadata
+        raster_metadata = get_raster_metadata(tiff_path)
 
-        # Merge user options with defaults (user options take precedence)
-        merged = {**defaults, **user_options}
+        chunk_size_config = calculate_chunk_size(raster_metadata)
 
-        logging.info(f"Using GDAL options: {merged}")
-        return merged
+        # Create chunks
+        chunks = create_chunks(raster_metadata, chunk_size_config)
 
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON in --gdal_options: {e}")
+        # Create output COG dataset in temporary file
+        output_dataset = create_output_cog_dataset(tmp_path, raster_metadata)
+
+        try:
+            # Process each chunk sequentially
+            for chunk in chunks:
+                # Process chunk
+                result = process_chunk(tiff_path, chunk, output_dataset)
+
+                if result["status"] != "completed":
+                    raise RuntimeError(
+                        f"Chunk {result['chunk_id']} processing failed: {result.get('error', 'Unknown error')}"
+                    )
+
+                # Log progress
+                progress = (chunk["chunk_id"] + 1) / len(chunks) * 100
+                logging.info(
+                    f"Progress: {progress:.1f}% ({chunk['chunk_id'] + 1}/{len(chunks)} chunks)"
+                )
+
+        finally:
+            # Close output dataset before building overviews
+            output_dataset.close()
+
+        # Build overviews for COG compliance (required for COG specification)
+        # COGs require internal overviews for efficient cloud-based streaming access
+        logging.info("Building overviews for COG compliance...")
+        overview_levels = []
+        try:
+            with rasterio.open(tmp_path, "r+") as dst:
+                # Calculate overview levels (powers of 2, up to reasonable limit)
+                width = dst.width
+                height = dst.height
+                level = 2
+                while width // level > 256 and height // level > 256:
+                    overview_levels.append(level)
+                    level *= 2
+                    if len(overview_levels) >= 5:  # Limit to 5 overview levels
+                        break
+
+                if overview_levels:
+                    dst.build_overviews(overview_levels, resampling=Resampling.nearest)
+                    # Write overviews to file
+                    dst.update_tags(ns="rio_overview", resampling="nearest")
+                    logging.info(
+                        f"Built {len(overview_levels)} overview levels: {overview_levels}"
+                    )
+                else:
+                    logging.warning(
+                        "No overview levels built (raster too small or calculation failed)"
+                    )
+
+        except Exception as e:
+            logging.warning(
+                f"Failed to build overviews: {e}. File may not be fully COG-compliant."
+            )
+
+        # Reorganize into proper COG structure using rio-cogeo
+        logging.info("Reorganizing file into COG-compliant structure...")
+        try:
+            # Get COG profile with default options
+            output_profile = cog_profiles.get("lzw")
+            output_profile.update(
+                {
+                    "blockxsize": 512,
+                    "blockysize": 512,
+                }
+            )
+
+            # Configure GDAL options for COG creation
+            config = {
+                "GDAL_TIFF_OVR_BLOCKSIZE": "512",
+            }
+
+            # Use cog_translate to reorganize file into COG-compliant structure
+            # This reorganizes the file layout without loading all data into memory
+            cog_translate(
+                tmp_path,
+                output_path,
+                output_profile,
+                config=config,
+                in_memory=False,  # Process on disk to maintain memory efficiency
+                quiet=True,  # Suppress verbose output
+            )
+            logging.info("Successfully reorganized into COG-compliant structure")
+
+        except Exception as e:
+            error_msg = f"Failed to reorganize into COG structure: {e}"
+            logging.error(error_msg)
+            raise RuntimeError(error_msg) from e
+
+        logging.info(
+            f"Successfully converted to COG using chunked processing: {output_path}"
+        )
+
+    except Exception as e:
+        error_msg = f"Chunked conversion failed: {e}"
+        logging.error(error_msg)
+        raise RuntimeError(error_msg) from e
+    finally:
+        # Clean up temporary file
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception as e:
+                logging.warning(f"Failed to clean up temporary file {tmp_path}: {e}")
 
 
-def run_gdal_translate(
-    tiff_path: str, output_path: str, gdal_options: Optional[Dict[str, str]] = None
-) -> None:
-    """Convert a TIFF file to Cloud Optimized GeoTIFF (COG) format using GDAL.
+def run_gdal_translate(tiff_path: str, output_path: str) -> None:
+    """Convert a TIFF file to Cloud Optimized GeoTIFF (COG) format using chunked processing.
 
-    This function uses the GDAL COG driver which automatically creates:
-    - Tiled GeoTIFF with internal overviews
-    - Optimized for cloud-based streaming access
-    - Proper internal structure for range requests
-
-    Remote URLs (http/https) are automatically accessed via GDAL's /vsicurl/
-    virtual file system for efficient remote reading.
+    All files are processed using chunked processing for consistency and memory efficiency.
+    Uses default GDAL options.
 
     Args:
-        tiff_path: Path or URL to the input TIFF file. HTTP/HTTPS URLs are
-                   automatically prefixed with /vsicurl/ for GDAL remote access.
-                   Can also be a local file path.
+        tiff_path: Path or URL to the input TIFF file
         output_path: Local filesystem path where the COG will be saved
-        gdal_options: Dictionary of GDAL creation options. If None, uses defaults.
-                     See get_default_gdal_options() for default values.
 
     Raises:
-        RuntimeError: If GDAL cannot open the input file
-        SystemExit: If GDAL conversion fails (exits with code 1)
+        RuntimeError: If GDAL cannot open the input file or conversion fails
 
     Example:
         >>> run_gdal_translate(
         ...     "https://example.com/data.tif",
-        ...     "output.tif",
-        ...     {"COMPRESS": "ZSTD", "BLOCKSIZE": "1024"}
+        ...     "output.tif"
         ... )
     """
-    # Use defaults if no options provided
-    if gdal_options is None:
-        gdal_options = get_default_gdal_options()
-
-    # Check if the path is a local file or a remote URL
-    if tiff_path.startswith(("http://", "https://")):
-        # Remote URL - use /vsicurl/ prefix for GDAL virtual file system
-        input_path = f"/vsicurl/{tiff_path}"
-    else:
-        # Local file path - use directly
-        input_path = tiff_path
-
-    logging.debug(f"Opening input file: {input_path}")
-    logging.debug(f"Using GDAL options: {gdal_options}")
-
-    # Configure GDAL to suppress warnings to stdout (use Python logging instead)
-    gdal.UseExceptions()
-
-    try:
-        # Open the input dataset
-        src_ds = gdal.Open(input_path, gdal.GA_ReadOnly)
-        if src_ds is None:
-            error_msg = f"Failed to open input file: {input_path}"
-            last_error = gdal.GetLastErrorMsg()
-            if last_error:
-                error_msg += f" - {last_error}"
-            raise RuntimeError(error_msg)
-
-        # Convert options dict to GDAL format (list of "KEY=VALUE" strings)
-        creation_options = [f"{key}={value}" for key, value in gdal_options.items()]
-
-        # Get COG driver
-        driver = gdal.GetDriverByName("COG")
-        if driver is None:
-            raise RuntimeError(
-                "COG driver not found. GDAL 3.1+ is required. "
-                "Current GDAL version: " + gdal.__version__
-            )
-
-        # Perform the translation to COG format
-        logging.info(f"Converting {input_path} to COG format...")
-        dst_ds = driver.CreateCopy(
-            output_path,
-            src_ds,
-            strict=0,  # Non-strict mode allows some flexibility
-            options=creation_options,
-        )
-
-        if dst_ds is None:
-            error_msg = "GDAL CreateCopy failed"
-            last_error = gdal.GetLastErrorMsg()
-            if last_error:
-                error_msg += f": {last_error}"
-            raise RuntimeError(error_msg)
-
-        # Explicitly close datasets to flush to disk
-        dst_ds = None
-        src_ds = None
-
-        logging.info(f"Successfully converted to COG: {output_path}")
-
-    except RuntimeError as e:
-        logging.error(f"GDAL conversion failed: {e}")
-        sys.exit(1)
-    except Exception as e:
-        logging.error(f"Unexpected error during GDAL conversion: {e}")
-        last_error = gdal.GetLastErrorMsg()
-        if last_error:
-            logging.error(f"GDAL error message: {last_error}")
-        sys.exit(1)
-    finally:
-        # Ensure datasets are closed even if an error occurred
-        gdal.ErrorReset()
+    run_gdal_translate_chunked(tiff_path, output_path)
 
 
 def get_output_cog_path(input_path: str, output_dir: str = "output_cog") -> str:
