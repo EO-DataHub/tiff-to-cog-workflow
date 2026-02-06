@@ -2,8 +2,6 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
-
 
 # Constants for validation
 MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10 GB
@@ -30,14 +28,12 @@ def validate_file_size(filepath: str, max_size: int = MAX_FILE_SIZE) -> None:
         if size > max_size:
             size_mb = size / (1024 * 1024)
             max_mb = max_size / (1024 * 1024)
-            raise ValidationError(
-                f"File too large: {size_mb:.2f} MB exceeds limit of {max_mb:.2f} MB"
-            )
+            raise ValidationError(f"File too large: {size_mb:.2f} MB exceeds limit of {max_mb:.2f} MB")
         logging.debug(f"File size validation passed: {size / (1024 * 1024):.2f} MB")
-    except FileNotFoundError:
-        raise ValidationError(f"File not found: {filepath}")
+    except FileNotFoundError as e:
+        raise ValidationError(f"File not found: {filepath}") from e
     except OSError as e:
-        raise ValidationError(f"Cannot access file {filepath}: {e}")
+        raise ValidationError(f"Cannot access file {filepath}: {e}") from e
 
 
 def validate_tiff_magic_bytes(filepath: str) -> None:
@@ -58,9 +54,7 @@ def validate_tiff_magic_bytes(filepath: str) -> None:
             header = f.read(4)
 
             if len(header) < 4:
-                raise ValidationError(
-                    f"File too small to be a valid TIFF (only {len(header)} bytes)"
-                )
+                raise ValidationError(f"File too small to be a valid TIFF (only {len(header)} bytes)")
 
             # Check for TIFF magic bytes
             if header[:2] == b"II" and header[2:4] == b"\x2a\x00":
@@ -74,15 +68,15 @@ def validate_tiff_magic_bytes(filepath: str) -> None:
                     f"File does not appear to be a valid TIFF. "
                     f"Magic bytes: {header.hex()} (expected: II2A00 or MM002A)"
                 )
-    except FileNotFoundError:
-        raise ValidationError(f"File not found: {filepath}")
-    except PermissionError:
-        raise ValidationError(f"Permission denied reading file: {filepath}")
+    except FileNotFoundError as e:
+        raise ValidationError(f"File not found: {filepath}") from e
+    except PermissionError as e:
+        raise ValidationError(f"Permission denied reading file: {filepath}") from e
     except Exception as e:
-        raise ValidationError(f"Error reading file {filepath}: {e}")
+        raise ValidationError(f"Error reading file {filepath}: {e}") from e
 
 
-def validate_downloaded_file(filepath: str, max_size: Optional[int] = None) -> None:
+def validate_downloaded_file(filepath: str, max_size: int | None = None) -> None:
     """Validate a downloaded file.
 
     Performs file size check and TIFF magic bytes validation.

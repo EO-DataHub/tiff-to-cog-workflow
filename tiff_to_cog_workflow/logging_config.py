@@ -10,9 +10,7 @@ def setup_logging() -> None:
     Sets up basic logging configuration with DEBUG level and suppresses
     verbose logs from third-party libraries (boto3, botocore, s3transfer, urllib3).
     """
-    logging.basicConfig(
-        level=logging.DEBUG, format="[%(levelname)s] %(message)s", stream=sys.stderr
-    )
+    logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s", stream=sys.stderr)
 
     # Suppress verbose boto3 and s3transfer logs
     logging.getLogger("boto3").setLevel(logging.WARNING)

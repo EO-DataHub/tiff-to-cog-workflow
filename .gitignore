@@ -12,7 +12,6 @@ __pycache__/
 *.bak
 *.out
 *.err
-*.lock
 *.swp
 *.swo
 *.tif
@@ -43,3 +42,6 @@ output/
 specs
 
 output_cog/
+
+# Pre-commit config (downloaded at setup time)
+.pre-commit-config.yaml

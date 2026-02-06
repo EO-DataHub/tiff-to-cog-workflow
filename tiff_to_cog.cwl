@@ -44,7 +44,7 @@ $graph:
         envDef:
           OUTPUT_DIR: /tmp/output
           CWL_OUTPUT_DIR: output_cog
-    baseCommand: [python, /usr/bin/main.py]
+    baseCommand: [python, -m, tiff_to_cog_workflow.main]
     inputs:
       stac_item_url:
         type: string

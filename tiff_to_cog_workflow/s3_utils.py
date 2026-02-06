@@ -3,7 +3,7 @@
 import logging
 import os
 import time
-from typing import Tuple
+
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError, NoCredentialsError
 
@@ -16,9 +16,7 @@ def check_aws_credentials() -> bool:
     """
     try:
         # Get AWS region from environment or use default
-        aws_region = os.environ.get(
-            "AWS_DEFAULT_REGION", os.environ.get("AWS_REGION", "us-east-1")
-        )
+        aws_region = os.environ.get("AWS_DEFAULT_REGION", os.environ.get("AWS_REGION", "us-east-1"))
         logging.info(f"🌍 Using AWS region: {aws_region}")
 
         s3 = boto3.client("s3", region_name=aws_region)
@@ -42,9 +40,7 @@ def check_aws_credentials() -> bool:
         return False
 
 
-def download_file_from_s3(
-    bucket_name: str, key: str, output_path: str, max_retries: int = 3
-) -> None:
+def download_file_from_s3(bucket_name: str, key: str, output_path: str, max_retries: int = 3) -> None:
     """Download a file from S3 bucket to local filesystem with retry logic.
 
     Args:
@@ -58,27 +54,21 @@ def download_file_from_s3(
         NoCredentialsError: If AWS credentials are not available
     """
     # Get AWS region from environment or use default
-    aws_region = os.environ.get(
-        "AWS_DEFAULT_REGION", os.environ.get("AWS_REGION", "us-east-1")
-    )
+    aws_region = os.environ.get("AWS_DEFAULT_REGION", os.environ.get("AWS_REGION", "us-east-1"))
     logging.info(f"🌍 Using AWS region for S3: {aws_region}")
 
     s3 = boto3.client("s3", region_name=aws_region)
 
     for attempt in range(max_retries + 1):
         try:
-            logging.info(
-                f"📥 Downloading from S3 (attempt {attempt + 1}/{max_retries + 1}): {bucket_name}/{key}"
-            )
+            logging.info(f"📥 Downloading from S3 (attempt {attempt + 1}/{max_retries + 1}): {bucket_name}/{key}")
 
             # Download the file
             s3.download_file(bucket_name, key, output_path)
 
             # Verify download
             downloaded_size = os.path.getsize(output_path)
-            logging.info(
-                f"✅ Successfully downloaded {downloaded_size:,} bytes to {output_path}"
-            )
+            logging.info(f"✅ Successfully downloaded {downloaded_size:,} bytes to {output_path}")
             return
 
         except ClientError as e:
@@ -91,22 +81,16 @@ def download_file_from_s3(
                 logging.error(f"❌ S3 object not found: {bucket_name}/{key}")
                 raise
             elif error_code == "403" or error_code == "AccessDenied":
-                logging.error(
-                    f"❌ Permission denied to access S3 object: {bucket_name}/{key}"
-                )
+                logging.error(f"❌ Permission denied to access S3 object: {bucket_name}/{key}")
                 raise
             elif error_code in ["RequestTimeout", "ServiceUnavailable", "SlowDown"]:
                 if attempt < max_retries:
                     wait_time = 2**attempt  # Exponential backoff
-                    logging.warning(
-                        f"⚠️  Transient S3 error ({error_code}), retrying in {wait_time}s..."
-                    )
+                    logging.warning(f"⚠️  Transient S3 error ({error_code}), retrying in {wait_time}s...")
                     time.sleep(wait_time)
                     continue
                 else:
-                    logging.error(
-                        f"❌ S3 error after {max_retries} retries: {error_code}"
-                    )
+                    logging.error(f"❌ S3 error after {max_retries} retries: {error_code}")
                     raise
             else:
                 logging.error(f"❌ S3 error ({error_code}): {e}")
@@ -119,9 +103,7 @@ def download_file_from_s3(
         except Exception as e:
             if attempt < max_retries:
                 wait_time = 2**attempt
-                logging.warning(
-                    f"⚠️  Unexpected error during download, retrying in {wait_time}s: {e}"
-                )
+                logging.warning(f"⚠️  Unexpected error during download, retrying in {wait_time}s: {e}")
                 time.sleep(wait_time)
                 continue
             else:
@@ -129,7 +111,7 @@ def download_file_from_s3(
                 raise
 
 
-def parse_eodatahub_url(url: str, download_dir: str = None) -> Tuple[str, str, str]:
+def parse_eodatahub_url(url: str, download_dir: str | None = None) -> tuple[str, str, str]:
     """Parse eodatahub-workspaces.org.uk URL to extract S3 bucket and key.
 
     Args:
@@ -152,10 +134,6 @@ def parse_eodatahub_url(url: str, download_dir: str = None) -> Tuple[str, str, s
     key = f"{workspace_name}/" + "/".join(url_parts[files_idx + 2 :])
     file_name = key.split("/")[-1]
     local_tiff_path = f"{download_dir}/{file_name}"
-    logging.debug(
-        {"bucket_name": bucket_name, "key": key, "local_tiff_path": local_tiff_path}
-    )
+    logging.debug({"bucket_name": bucket_name, "key": key, "local_tiff_path": local_tiff_path})
 
     return bucket_name, key, local_tiff_path
-
-

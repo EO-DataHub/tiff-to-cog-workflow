@@ -1,77 +1,77 @@
-# Python
-__pycache__/
+# Git and version control
+.git
+.gitignore
+
+# Virtual environments
+.venv
+
+# Python cache and bytecode
+__pycache__
 *.py[cod]
 *$py.class
 *.so
-.Python
-*.egg-info/
-dist/
-build/
+*.egg-info
+*.egg
 
-# Virtual environments
-.venv/
-venv/
-ENV/
-env/
+# Testing
+tests
+.pytest_cache
+.coverage
+.coverage.*
+htmlcov
+.tox
+.nox
+.hypothesis
 
-# IDE
-.vscode/
-.idea/
+# Development tools and docs
+Makefile
+.pre-commit-config.yaml
+CHANGELOG.md
+README.md
+DEPLOYMENT.md
+
+# IDE and editor files
+.vscode
+.idea
 *.swp
 *.swo
-*.sublime-*
+*~
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
 
-# Git
-.git/
-.gitignore
+# Build artifacts
+build
+dist
+*.whl
+*.tar.gz
 
-# Environment files
-.env
-.env.local
-*.env
+# Linting and type checking caches
+.ruff_cache
+.mypy_cache
+.dmypy.json
 
-# Logs
-*.log
-*.log.*
+# Misc
+*.bak
+.cache
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
+# Docker files
+Dockerfile
+.dockerignore
 
-# Documentation
-*.md
-!README.md
-docs/
-
-# CWL outputs
+# CWL outputs and temporary files
 *.cwlout
 *.cwltmp
 *.cwl.log
-
-# Temporary files
-*.tmp
-*.bak
-*.out
-*.err
-*.lock
-
-# Output files
+output_cog/
 output/
+
+# Test data
 *.tif
 *.tiff
+test_stac_item_public.json
 
-# Specify directory
+# Specify/Cursor
 .specify/
-
-# Cursor
 .cursor/
-
-
-
-

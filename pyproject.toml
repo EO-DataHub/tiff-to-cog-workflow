@@ -1,0 +1,77 @@
+[project]
+name = "tiff-to-cog-workflow"
+version = "0.2.0"
+description = "TIFF to Cloud Optimized GeoTIFF (COG) conversion workflow with STAC catalog generation"
+requires-python = ">=3.13,<3.14"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "boto3",
+    "psutil",
+    "pystac",
+    "rasterio",
+    "requests",
+    "rio-cogeo",
+    "shapely",
+]
+
+[project.urls]
+Repository = "https://github.com/EO-DataHub/tiff-to-cog-workflow"
+
+[dependency-groups]
+dev = [
+    "pre-commit",
+    "pyright",
+    "pytest",
+    "pytest-mock",
+    "pytest-watcher",
+    "pytest-xdist",
+    "ruff",
+    "validate-pyproject",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+testpaths = ["tests"]
+
+[tool.pyright]
+exclude = ["test_workflow.py", ".venv"]
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff]
+line-length = 119
+extend-exclude = ["test_workflow.py"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # Pycodestyle errors
+    "W",    # Pycodestyle warnings
+    "F",    # Pyflakes
+    "I",    # isort
+    "FAST", # FastAPI
+    "RUF",  # RUF-specific rules
+    "SIM",  # Simplifications
+    "B",    # Bugbear
+    "ANN",  # Annotations
+    "PLC",  # Pylint convention
+    "PLE",  # Pylint errors
+    "UP",   # pyupgrade
+    "FURB", # refurb
+    "PT",   # pytest
+]
+ignore = [
+    "E501",   # line too long
+    "SIM108", # ternary operator
+    "SIM103", # return bool directly
+    "B008"    # function call in default argument (incompatible with FastAPI)
+]

@@ -5,23 +5,25 @@ import logging
 import os
 import shutil
 import tempfile
-import requests
 from pathlib import Path
-from typing import Dict
+from typing import Any
 
-from chunking_utils import (
-    calculate_chunk_size,
-    create_chunks,
-    process_chunk,
-    create_output_cog_dataset,
-)
 import rasterio
+import rasterio.errors
+import requests
 from rasterio.enums import Resampling
 from rio_cogeo.cogeo import cog_translate
 from rio_cogeo.profiles import cog_profiles
 
+from tiff_to_cog_workflow.chunking_utils import (
+    calculate_chunk_size,
+    create_chunks,
+    create_output_cog_dataset,
+    process_chunk,
+)
 
-def get_raster_metadata(file_path: str) -> Dict:
+
+def get_raster_metadata(file_path: str) -> dict:
     """Get raster metadata from a TIFF file.
 
     Reads raster metadata using rasterio to get dimensions, bands, and data type.
@@ -75,9 +77,7 @@ def get_raster_metadata(file_path: str) -> Dict:
             transform = src.transform
 
             # Get bytes per pixel from data type
-            bytes_per_pixel = dtype_to_bytes.get(
-                data_type, 4
-            )  # Default to 4 bytes if unknown
+            bytes_per_pixel = dtype_to_bytes.get(data_type, 4)  # Default to 4 bytes if unknown
 
             return {
                 "width": width,
@@ -124,9 +124,8 @@ def run_gdal_translate_chunked(
         ... )
     """
     # Create temporary file for initial chunked processing
-    tmp_file = tempfile.NamedTemporaryFile(suffix=".tif", delete=False)
-    tmp_path = tmp_file.name
-    tmp_file.close()
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".tif")
+    os.close(tmp_fd)
 
     try:
         # Get raster metadata
@@ -153,9 +152,7 @@ def run_gdal_translate_chunked(
 
                 # Log progress
                 progress = (chunk["chunk_id"] + 1) / len(chunks) * 100
-                logging.info(
-                    f"Progress: {progress:.1f}% ({chunk['chunk_id'] + 1}/{len(chunks)} chunks)"
-                )
+                logging.info(f"Progress: {progress:.1f}% ({chunk['chunk_id'] + 1}/{len(chunks)} chunks)")
 
         finally:
             # Close output dataset before building overviews
@@ -181,18 +178,12 @@ def run_gdal_translate_chunked(
                     dst.build_overviews(overview_levels, resampling=Resampling.nearest)
                     # Write overviews to file
                     dst.update_tags(ns="rio_overview", resampling="nearest")
-                    logging.info(
-                        f"Built {len(overview_levels)} overview levels: {overview_levels}"
-                    )
+                    logging.info(f"Built {len(overview_levels)} overview levels: {overview_levels}")
                 else:
-                    logging.warning(
-                        "No overview levels built (raster too small or calculation failed)"
-                    )
+                    logging.warning("No overview levels built (raster too small or calculation failed)")
 
         except Exception as e:
-            logging.warning(
-                f"Failed to build overviews: {e}. File may not be fully COG-compliant."
-            )
+            logging.warning(f"Failed to build overviews: {e}. File may not be fully COG-compliant.")
 
         # Reorganize into proper COG structure using rio-cogeo
         logging.info("Reorganizing file into COG-compliant structure...")
@@ -228,9 +219,7 @@ def run_gdal_translate_chunked(
             logging.error(error_msg)
             raise RuntimeError(error_msg) from e
 
-        logging.info(
-            f"Successfully converted to COG using chunked processing: {output_path}"
-        )
+        logging.info(f"Successfully converted to COG using chunked processing: {output_path}")
 
     except Exception as e:
         error_msg = f"Chunked conversion failed: {e}"
@@ -286,14 +275,14 @@ def get_output_cog_path(input_path: str, output_dir: str = "output_cog") -> str:
         >>> get_output_cog_path("https://example.com/image.tiff", "my_cogs")
         'my_cogs/image_cog.tiff'
     """
-    input_path = Path(input_path)
+    input_path_obj = Path(input_path)
     output_dir_path = Path(output_dir)
     output_dir_path.mkdir(exist_ok=True)
-    new_name = input_path.stem + "_cog" + input_path.suffix
+    new_name = input_path_obj.stem + "_cog" + input_path_obj.suffix
     return str(output_dir_path / new_name)
 
 
-def is_tiff_asset(asset: Dict[str, any]) -> bool:
+def is_tiff_asset(asset: dict[str, Any]) -> bool:
     """Check if an asset is a TIFF file based on media type or file extension.
 
     Args:
@@ -319,9 +308,7 @@ def is_tiff_asset(asset: Dict[str, any]) -> bool:
     return any(filename.endswith(ext) for ext in tiff_extensions)
 
 
-def copy_asset(
-    asset_href: str, output_dir: str, preserve_structure: bool = True
-) -> str:
+def copy_asset(asset_href: str, output_dir: str, preserve_structure: bool = True) -> str:
     """Download and copy a non-TIFF asset to the output directory.
 
     Args:
@@ -339,7 +326,7 @@ def copy_asset(
     output_dir_path.mkdir(exist_ok=True)
 
     # Extract filename from URL
-    filename = Path(asset_href.split("?")[0]).name
+    filename = Path(asset_href.split("?", maxsplit=1)[0]).name
 
     if preserve_structure and "/" in asset_href:
         # Try to preserve some directory structure
@@ -362,8 +349,7 @@ def copy_asset(
             response.raise_for_status()
 
             with open(output_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                f.writelines(response.iter_content(chunk_size=8192))
         else:
             # Local file copy
             logging.info(f"Copying local asset: {asset_href}")
@@ -373,12 +359,12 @@ def copy_asset(
         return str(output_path)
 
     except requests.RequestException as e:
-        raise RuntimeError(f"Failed to download asset {asset_href}: {e}")
-    except (OSError, IOError) as e:
-        raise RuntimeError(f"Failed to copy asset {asset_href}: {e}")
+        raise RuntimeError(f"Failed to download asset {asset_href}: {e}") from e
+    except OSError as e:
+        raise RuntimeError(f"Failed to copy asset {asset_href}: {e}") from e
 
 
-def download_stac_item(stac_item_url: str) -> Dict[str, any]:
+def download_stac_item(stac_item_url: str) -> dict[str, Any]:
     """Download and parse a STAC item from URL.
 
     Args:
@@ -396,7 +382,7 @@ def download_stac_item(stac_item_url: str) -> Dict[str, any]:
         if stac_item_url.startswith("file://"):
             # Handle local file URLs
             file_path = stac_item_url[7:]  # Remove "file://" prefix
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 stac_item = json.load(f)
         else:
             # Handle HTTP/HTTPS URLs
@@ -414,14 +400,12 @@ def download_stac_item(stac_item_url: str) -> Dict[str, any]:
         if "assets" not in stac_item:
             raise RuntimeError("STAC item has no assets")
 
-        logging.info(
-            f"Successfully downloaded STAC item with {len(stac_item['assets'])} assets"
-        )
+        logging.info(f"Successfully downloaded STAC item with {len(stac_item['assets'])} assets")
         return stac_item
 
     except requests.RequestException as e:
-        raise RuntimeError(f"Failed to download STAC item {stac_item_url}: {e}")
+        raise RuntimeError(f"Failed to download STAC item {stac_item_url}: {e}") from e
     except json.JSONDecodeError as e:
-        raise RuntimeError(f"Failed to parse STAC item JSON: {e}")
-    except (OSError, IOError) as e:
-        raise RuntimeError(f"Failed to read local STAC item file {stac_item_url}: {e}")
+        raise RuntimeError(f"Failed to parse STAC item JSON: {e}") from e
+    except OSError as e:
+        raise RuntimeError(f"Failed to read local STAC item file {stac_item_url}: {e}") from e
