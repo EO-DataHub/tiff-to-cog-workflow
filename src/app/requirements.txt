@@ -1,7 +1,0 @@
-pystac
-boto3
-rasterio
-shapely
-requests
-psutil
-rio-cogeo

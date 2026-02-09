@@ -1,17 +1,18 @@
 """STAC catalog creation utilities for GeoTIFF/COG files."""
 
-import pystac
 import datetime
-from pathlib import Path
-import pystac.utils
 import logging
+from pathlib import Path
+from typing import Any
+
+import pystac
+import pystac.utils
 import rasterio
-from rasterio.warp import transform_geom
+from rasterio.warp import transform_bounds, transform_geom
 from shapely.geometry import box, mapping
-from typing import Dict, Any
 
 
-def extract_geotiff_metadata(cog_path: str) -> Dict[str, Any]:
+def extract_geotiff_metadata(cog_path: str) -> dict[str, Any]:
     """Extract spatial and metadata information from a GeoTIFF file.
 
     Args:
@@ -41,7 +42,7 @@ def extract_geotiff_metadata(cog_path: str) -> Dict[str, Any]:
 
         # Get bbox in WGS84
         bbox_shape = box(
-            *rasterio.warp.transform_bounds(
+            *transform_bounds(
                 src.crs,
                 "EPSG:4326",
                 bounds.left,
@@ -80,8 +81,8 @@ def extract_geotiff_metadata(cog_path: str) -> Dict[str, Any]:
 
 
 def create_stac_catalog_from_item(
-    source_stac_item: Dict[str, any],
-    processed_assets: Dict[str, Dict[str, any]],
+    source_stac_item: dict[str, Any],
+    processed_assets: dict[str, dict[str, Any]],
     output_dir: str,
 ) -> None:
     """Create a STAC catalog and item from a source STAC item with processed assets.
@@ -139,9 +140,7 @@ def create_stac_catalog_from_item(
         # Create new asset with updated href and file size
         new_asset = pystac.Asset(
             href=asset_info["href"],
-            media_type=asset_info.get(
-                "type", original_asset.get("type", "application/octet-stream")
-            ),
+            media_type=asset_info.get("type", original_asset.get("type", "application/octet-stream")),
             roles=original_asset.get("roles", ["data"]),
             title=original_asset.get("title"),
             description=original_asset.get("description"),
@@ -164,6 +163,4 @@ def create_stac_catalog_from_item(
     # Save catalog and item
     cat.save(catalog_type=pystac.CatalogType.SELF_CONTAINED, dest_href=str(parent_dir))
 
-    logging.info(
-        f"Created STAC catalog with {len(processed_assets)} assets in {parent_dir}"
-    )
+    logging.info(f"Created STAC catalog with {len(processed_assets)} assets in {parent_dir}")

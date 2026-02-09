@@ -11,16 +11,19 @@ To adapt this script for a different workflow, update the WORKFLOW_CONFIG dictio
 - output_dir_name: Expected output directory name (optional, for reference)
 """
 
-import sys
-import os
-import glob
-import logging
-import shutil
-import tempfile
 import argparse
-from stac_validator import stac_validator
+import glob
+import importlib.util
+import logging
+import os
+import shutil
+import sys
+import tempfile
+from typing import Any
+
 import cwltool.factory
 import cwltool.main
+from stac_validator import stac_validator
 
 # Configure logging
 logging.basicConfig(
@@ -40,7 +43,9 @@ WORKFLOW_CONFIG = {
 }
 
 
-def run_cwl_workflow(test_input, aws_credentials=None):
+def run_cwl_workflow(
+    test_input: str, aws_credentials: dict[str, str] | None = None
+) -> tuple[bool, str | None, str | None]:
     """Run the CWL workflow using Python factory and return success status."""
     logger.info(f"🔄 Running CWL workflow with input '{test_input}'")
 
@@ -58,9 +63,7 @@ def run_cwl_workflow(test_input, aws_credentials=None):
         os.makedirs(output_dir, exist_ok=True)
 
         # Run workflow and capture outputs using temporary directory
-        with tempfile.TemporaryDirectory(
-            dir=output_dir, prefix="stac_output_"
-        ) as temp_dir:
+        with tempfile.TemporaryDirectory(dir=output_dir, prefix="stac_output_") as temp_dir:
             runtime_context.outdir = temp_dir
             cwl_uri = f"file://{cwl_path}#{WORKFLOW_CONFIG['workflow_id']}"
             logger.debug(f"Using URI: {cwl_uri}")
@@ -69,7 +72,7 @@ def run_cwl_workflow(test_input, aws_credentials=None):
             workflow = fac.make(cwl_uri)
 
             # Prepare workflow inputs
-            workflow_inputs = {WORKFLOW_CONFIG["input_param"]: test_input}
+            workflow_inputs: dict[str, Any] = {WORKFLOW_CONFIG["input_param"]: test_input}
 
             # Add AWS credentials if provided
             if aws_credentials:
@@ -94,11 +97,11 @@ def run_cwl_workflow(test_input, aws_credentials=None):
 
     except Exception as e:
         logger.error(f"❌ CWL workflow failed: {e}")
-        logger.debug(f"Error details: {str(e)}")
+        logger.debug(f"Error details: {e!s}")
         return False, None, str(e)
 
 
-def find_stac_files(output_dir):
+def find_stac_files(output_dir: str) -> list[str]:
     """Find all JSON files in the output directory and subdirectories."""
     logger.debug(f"🔍 Searching for JSON files in: {output_dir}")
 
@@ -129,7 +132,7 @@ def find_stac_files(output_dir):
     return [f for f in json_files if os.path.isfile(f)]
 
 
-def validate_stac_file(file_path):
+def validate_stac_file(file_path: str) -> bool:
     """Validate a single STAC file using stac-validator Python library."""
     logger.info(f"🔍 Validating {os.path.basename(file_path)}")
 
@@ -161,11 +164,9 @@ def validate_stac_file(file_path):
         return False
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description=f"Test script for {WORKFLOW_CONFIG['workflow_id']} CWL workflow"
-    )
+    parser = argparse.ArgumentParser(description=f"Test script for {WORKFLOW_CONFIG['workflow_id']} CWL workflow")
     parser.add_argument(
         "--input",
         type=str,
@@ -201,7 +202,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
     """Main test function."""
     args = parse_args()
 
@@ -209,30 +210,18 @@ def main():
     logger.info("=" * 50)
 
     # Check if cwltool Python library is available
-    try:
-        import importlib.util
-
-        spec = importlib.util.find_spec("cwltool")
-        if spec is None:
-            raise ImportError("cwltool module not found")
-        logger.info("✅ cwltool Python library is available")
-    except ImportError:
+    spec = importlib.util.find_spec("cwltool")
+    if spec is None:
         logger.error("❌ cwltool Python library not found. Please install it first.")
         sys.exit(1)
+    logger.info("✅ cwltool Python library is available")
 
     # Check if stac-validator Python library is available
-    try:
-        import importlib.util
-
-        spec = importlib.util.find_spec("stac_validator")
-        if spec is None:
-            raise ImportError("stac_validator module not found")
-        logger.info("✅ stac-validator Python library is available")
-    except ImportError:
-        logger.error(
-            "❌ stac-validator Python library not found. Please install it first."
-        )
+    spec = importlib.util.find_spec("stac_validator")
+    if spec is None:
+        logger.error("❌ stac-validator Python library not found. Please install it first.")
         sys.exit(1)
+    logger.info("✅ stac-validator Python library is available")
 
     # Run the CWL workflow
     test_input = args.input
@@ -251,7 +240,7 @@ def main():
     else:
         logger.warning("⚠️  No AWS credentials provided - S3 downloads may fail")
 
-    success, output_dir, error = run_cwl_workflow(test_input, aws_credentials)
+    success, output_dir, _error = run_cwl_workflow(test_input, aws_credentials)
 
     if not success:
         logger.error("❌ CWL workflow failed")
@@ -260,6 +249,7 @@ def main():
         sys.exit(1)
 
     # Find and validate STAC files
+    assert output_dir is not None
     stac_files = find_stac_files(output_dir)
 
     if not stac_files:

@@ -1,3 +1,0 @@
-pre-commit
-cwltool
-stac-validator

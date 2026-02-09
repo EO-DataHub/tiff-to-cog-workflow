@@ -1,30 +1,32 @@
 """TIFF to COG conversion script with STAC catalog generation."""
 
 import argparse
-from pathlib import Path
-import sys
+import gc
 import logging
 import os
 import shutil
-from logging_config import setup_logging
-from stac_utils import create_stac_catalog_from_item
-from s3_utils import (
+import sys
+import traceback
+from pathlib import Path
+
+from tiff_to_cog_workflow.gdal_utils import (
+    copy_asset,
+    download_stac_item,
+    get_output_cog_path,
+    is_tiff_asset,
+    run_gdal_translate,
+)
+from tiff_to_cog_workflow.logging_config import setup_logging
+from tiff_to_cog_workflow.s3_utils import (
     download_file_from_s3,
     parse_eodatahub_url,
 )
-from gdal_utils import (
-    run_gdal_translate,
-    get_output_cog_path,
-    is_tiff_asset,
-    copy_asset,
-    download_stac_item,
-)
-from validation import (
+from tiff_to_cog_workflow.stac_utils import create_stac_catalog_from_item
+from tiff_to_cog_workflow.validation import (
     ValidationError,
     validate_downloaded_file,
     validate_file_size,
 )
-import gc
 
 # Setup logging configuration
 setup_logging()
@@ -85,31 +87,23 @@ def main() -> None:
         failed_assets = []
         total_assets = len(stac_item.get("assets", {}))
 
-        for asset_index, (asset_key, asset) in enumerate(
-            stac_item.get("assets", {}).items(), 1
-        ):
+        for asset_index, (asset_key, asset) in enumerate(stac_item.get("assets", {}).items(), 1):
             asset_href = asset.get("href")
             if not asset_href:
                 logging.warning(f"Asset {asset_key} has no href, skipping")
                 failed_assets.append(asset_key)
                 continue
 
-            logging.info(
-                f"🔄 Processing asset {asset_index}/{total_assets}: {asset_key}"
-            )
+            logging.info(f"🔄 Processing asset {asset_index}/{total_assets}: {asset_key}")
 
             # Check asset type first to determine appropriate validation
             is_tiff = is_tiff_asset(asset)
 
             # Check if this is an EODH workspace URL that needs S3 download
             if "eodatahub-workspaces.org.uk" in asset_href:
-                logging.info(
-                    f"🌐 EODH workspace URL detected for asset {asset_key} - parsing and downloading from S3"
-                )
+                logging.info(f"🌐 EODH workspace URL detected for asset {asset_key} - parsing and downloading from S3")
                 try:
-                    bucket_name, key, local_path = parse_eodatahub_url(
-                        asset_href, DOWNLOAD_DIR
-                    )
+                    bucket_name, key, local_path = parse_eodatahub_url(asset_href, DOWNLOAD_DIR)
                     download_file_from_s3(bucket_name, key, local_path)
 
                     # Apply appropriate validation based on asset type
@@ -119,9 +113,7 @@ def main() -> None:
                         else:
                             validate_file_size(local_path)
                     except ValidationError as e:
-                        logging.error(
-                            f"❌ Downloaded file validation failed for {asset_key}: {e}"
-                        )
+                        logging.error(f"❌ Downloaded file validation failed for {asset_key}: {e}")
                         failed_assets.append(asset_key)
                         continue
 
@@ -159,9 +151,7 @@ def main() -> None:
                         "type": media_type,
                     }
 
-                    logging.info(
-                        f"✅ Successfully converted {asset_key} to COG: {output_cog} ({file_size:,} bytes)"
-                    )
+                    logging.info(f"✅ Successfully converted {asset_key} to COG: {output_cog} ({file_size:,} bytes)")
 
                 except Exception as e:
                     logging.error(f"❌ Failed to convert TIFF asset {asset_key}: {e}")
@@ -171,9 +161,7 @@ def main() -> None:
                 # Copy non-TIFF asset
                 logging.info(f"📋 Copying non-TIFF asset {asset_key}")
                 try:
-                    copied_path = copy_asset(
-                        asset_href, item_output_dir, preserve_structure=False
-                    )
+                    copied_path = copy_asset(asset_href, item_output_dir, preserve_structure=False)
 
                     # Get file size
                     file_size = os.path.getsize(copied_path)
@@ -190,9 +178,7 @@ def main() -> None:
                         "type": media_type,
                     }
 
-                    logging.info(
-                        f"✅ Successfully copied {asset_key} to: {copied_path} ({file_size:,} bytes)"
-                    )
+                    logging.info(f"✅ Successfully copied {asset_key} to: {copied_path} ({file_size:,} bytes)")
 
                 except Exception as e:
                     logging.error(f"❌ Failed to copy asset {asset_key}: {e}")
@@ -201,31 +187,21 @@ def main() -> None:
 
         # Log processing summary
         successful_assets = len(processed_assets)
-        logging.info(
-            f"📊 Processing summary: {successful_assets}/{total_assets} assets processed successfully"
-        )
+        logging.info(f"📊 Processing summary: {successful_assets}/{total_assets} assets processed successfully")
 
         if failed_assets:
-            logging.warning(
-                f"⚠️  Failed assets ({len(failed_assets)}): {', '.join(failed_assets)}"
-            )
+            logging.warning(f"⚠️  Failed assets ({len(failed_assets)}): {', '.join(failed_assets)}")
 
         # Create output STAC catalog
         if processed_assets:
             try:
-                create_stac_catalog_from_item(
-                    stac_item, processed_assets, item_output_dir
-                )
-                logging.info(
-                    f"✅ Successfully created STAC catalog with {len(processed_assets)} assets"
-                )
+                create_stac_catalog_from_item(stac_item, processed_assets, item_output_dir)
+                logging.info(f"✅ Successfully created STAC catalog with {len(processed_assets)} assets")
 
                 # Copy to CWL output directory if specified (for CWL workflow compatibility)
                 cwl_output_dir = os.environ.get("CWL_OUTPUT_DIR")
                 if cwl_output_dir and output_dir != cwl_output_dir:
-                    logging.info(
-                        f"📦 Copying output from {output_dir} to {cwl_output_dir} for CWL"
-                    )
+                    logging.info(f"📦 Copying output from {output_dir} to {cwl_output_dir} for CWL")
                     cwl_output_path = Path(cwl_output_dir)
                     cwl_output_path.mkdir(parents=True, exist_ok=True)
 
@@ -255,8 +231,6 @@ def main() -> None:
         sys.exit(130)  # Standard exit code for Ctrl+C
     except Exception as e:
         logging.error(f"Error: {type(e).__name__}: {e}")
-        import traceback
-
         traceback.print_exc(file=sys.stderr)
         sys.exit(1)
 

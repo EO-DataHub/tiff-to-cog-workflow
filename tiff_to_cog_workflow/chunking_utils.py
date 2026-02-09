@@ -1,9 +1,10 @@
 """Chunking utilities for memory-efficient TIFF to COG conversion."""
 
 import logging
-import time
 import math
-from typing import Dict, List, Any
+import time
+from typing import Any
+
 import rasterio
 from rasterio.windows import Window
 
@@ -16,7 +17,7 @@ CHUNK_SIZE_MB = 100
 COG_BLOCK_SIZE = 512
 
 
-def calculate_chunk_size(raster_metadata: Dict) -> Dict:
+def calculate_chunk_size(raster_metadata: dict) -> dict:
     """Calculate chunk size based on MB-based configuration.
 
     Converts CHUNK_SIZE_MB to pixels based on raster metadata and rounds to COG block size boundaries.
@@ -77,8 +78,8 @@ def calculate_chunk_size(raster_metadata: Dict) -> Dict:
     chunk_height = min(chunk_dimension, height)
 
     # Calculate number of chunks
-    num_chunks_x = int(math.ceil(width / chunk_width))
-    num_chunks_y = int(math.ceil(height / chunk_height))
+    num_chunks_x = math.ceil(width / chunk_width)
+    num_chunks_y = math.ceil(height / chunk_height)
     total_chunks = num_chunks_x * num_chunks_y
 
     logging.info(
@@ -95,7 +96,7 @@ def calculate_chunk_size(raster_metadata: Dict) -> Dict:
     }
 
 
-def create_chunks(raster_metadata: Dict, chunk_size: Dict) -> List[Dict]:
+def create_chunks(raster_metadata: dict, chunk_size: dict) -> list[dict]:
     """Create list of chunk/window objects for processing.
 
     Creates window objects for each chunk based on chunk size configuration,
@@ -157,7 +158,10 @@ def create_chunks(raster_metadata: Dict, chunk_size: Dict) -> List[Dict]:
                 continue
 
             # Create window object
-            window = Window(x_offset, y_offset, actual_width, actual_height)
+            window = Window.from_slices(
+                rows=(y_offset, y_offset + actual_height),
+                cols=(x_offset, x_offset + actual_width),
+            )
 
             chunks.append(
                 {
@@ -178,7 +182,7 @@ def create_chunks(raster_metadata: Dict, chunk_size: Dict) -> List[Dict]:
     return chunks
 
 
-def create_output_cog_dataset(output_path: str, raster_metadata: Dict) -> DatasetWriter:
+def create_output_cog_dataset(output_path: str, raster_metadata: dict) -> DatasetWriter:
     """Create output COG dataset with proper profile.
 
     Creates a new COG-compatible GeoTIFF file with tiled structure and compression.
@@ -252,9 +256,9 @@ def create_output_cog_dataset(output_path: str, raster_metadata: Dict) -> Datase
 
 def process_chunk(
     source_path: str,
-    chunk: Dict,
+    chunk: dict,
     output_dataset: DatasetWriter,
-) -> Dict:
+) -> dict:
     """Process a single chunk and write it to the output COG file.
 
     Reads chunk data from source file using rasterio windowed reading and writes
