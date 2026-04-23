@@ -51,10 +51,31 @@ while IFS= read -r -d '' f; do
     }
     trap cleanup EXIT ERR
 
-    rio cogeo create "$f" "$tmp" \
+    # Attempt conversion, but handle CRS errors gracefully
+    set +e
+    CONVERT_OUTPUT=$(rio cogeo create "$f" "$tmp" \
       --cog-profile deflate \
       --overview-resampling average \
-      --quiet
+      --quiet 2>&1)
+    CONVERT_EXIT=$?
+    set -e
+
+    if [[ $CONVERT_EXIT -ne 0 ]]; then
+      # Check if error was due to missing/invalid CRS
+      if echo "$CONVERT_OUTPUT" | grep -qi "CRS is invalid\|CRSError.*invalid\|crs.*invalid.*none"; then
+        echo "  ⚠️  Skipping: File has no CRS (required for COG conversion)"
+        cleanup
+        trap - EXIT ERR
+        continue
+      else
+        # Other error - show output and fail
+        echo "$CONVERT_OUTPUT" >&2
+        echo "  ❌ Conversion failed (exit code: $CONVERT_EXIT)" >&2
+        cleanup
+        trap - EXIT ERR
+        exit 1
+      fi
+    fi
 
     mv -f -- "$tmp" "$f"
     trap - EXIT ERR  # Clear trap after successful move
