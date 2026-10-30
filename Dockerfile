@@ -1,10 +1,10 @@
-# syntax=docker/dockerfile:1
-FROM ghcr.io/osgeo/gdal:ubuntu-small-3.6.3
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+FROM ghcr.io/osgeo/gdal:ubuntu-small-3.6.3@sha256:bfa7915a3ef942b4f6f61223ee57eadbb469d6fb4a5fbf562286d1473f15eaab
 
 LABEL authors="Sparkgeo UK"
 
 # Get uv from the official image
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:latest@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 /uv /uvx /bin/
 
 # AWS credentials as build arguments
 ARG AWS_ACCESS_KEY_ID
